@@ -4,6 +4,7 @@ import { STATUS_OPTIONS } from '../types';
 import { resolveStatus } from '../sheetParser';
 import { Badge } from './Badge';
 
+
 const PAGE_SIZE = 20;
 
 interface CaseListProps {

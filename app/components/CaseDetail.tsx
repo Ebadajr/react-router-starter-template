@@ -2,7 +2,7 @@ import type { EddRow, CaseStatus } from '../types';
 import { STATUS_OPTIONS } from '../types';
 import { resolveStatus } from '../sheetParser';
 import { Badge } from './Badge';
-import { UserToolPanel } from './usertoolpanel';
+import { UserToolPanel } from './UserToolPanel';
 
 interface CaseDetailProps {
   row: EddRow | null;

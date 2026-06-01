@@ -6,8 +6,8 @@ import { parseSheetData, resolveStatus } from '../sheetParser';
 import type { EddRow, CaseStatus } from '../types';
 import { TopBar } from '../components/TopBar';
 import { MetricsBar } from '../components/MetricsBar';
-import { CaseList } from '../components/caselist';
-import { CaseDetail } from '../components/casedetail';
+import { CaseList } from '../components/CaseList';
+import { CaseDetail } from '../components/CaseDetail';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
