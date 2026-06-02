@@ -28,6 +28,10 @@ const CORS: Record<string, string> = {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === '/api/debug-sa' && request.method === 'GET') {
+  const raw = env.GOOGLE_SERVICE_ACCOUNT_JSON ?? 'undefined';
+  return new Response(raw, { headers: { 'Content-Type': 'text/plain' } });
+}
 
 
     if (request.method === 'OPTIONS') {
