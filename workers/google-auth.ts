@@ -32,19 +32,27 @@ export async function getGoogleToken(
     return cached.token;
   }
 
-  // Extract private_key before parsing to avoid JSON control character issues.
-  // The key may contain real newlines (invalid in JSON) or escaped \n sequences.
-  const keyMatch = serviceAccountJSON.match(/"private_key"\s*:\s*"([\s\S]*?)(?<!\\)"/);
-  const privateKey = keyMatch ? keyMatch[1].replace(/\\n/g, '\n') : '';
-
-  // Remove the private_key from the JSON before parsing, then add it back
-  const safeJSON = serviceAccountJSON.replace(/"private_key"\s*:\s*"[\s\S]*?(?<!\\)"/, '"private_key": "__PLACEHOLDER__"');
-  const sa = JSON.parse(safeJSON) as ServiceAccount;
-  sa.private_key = privateKey;
-
+  const sa = parseServiceAccount(serviceAccountJSON);
   const token = await _fetchAccessToken(sa, scopes);
   _cache.set(cacheKey, { token, expiresAt: Date.now() + 55 * 60 * 1000 });
   return token;
+}
+
+function parseServiceAccount(raw: string): ServiceAccount {
+  function extract(field: string): string {
+    const match = raw.match(new RegExp(`"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`));
+    if (!match) throw new Error(`Service account JSON missing field: ${field}`);
+    return match[1]
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '')
+      .replace(/\\\\/g, '\\')
+      .replace(/\\"/g, '"');
+  }
+
+  return {
+    client_email: extract('client_email'),
+    private_key:  extract('private_key'),
+  };
 }
 
 async function _fetchAccessToken(sa: ServiceAccount, scopes: string[]): Promise<string> {
