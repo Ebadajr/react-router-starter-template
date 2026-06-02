@@ -32,7 +32,8 @@ export async function getGoogleToken(
     return cached.token;
   }
 
-  const sa = JSON.parse(serviceAccountJSON) as ServiceAccount;
+  const cleanedJSON = serviceAccountJSON.replace(/\\n/g, '\n');
+  const sa = JSON.parse(cleanedJSON) as ServiceAccount;
   const token = await _fetchAccessToken(sa, scopes);
 
   _cache.set(cacheKey, { token, expiresAt: Date.now() + 55 * 60 * 1000 });
