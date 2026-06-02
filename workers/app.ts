@@ -29,17 +29,7 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === '/api/debug-sa' && request.method === 'GET') {
-  const raw = env.GOOGLE_SERVICE_ACCOUNT_JSON ?? 'undefined';
-  return new Response(JSON.stringify({
-    length: raw.length,
-    first50: raw.slice(0, 50),
-    last50: raw.slice(-50),
-    position636: raw.slice(630, 645),
-    hasRealNewlines: raw.includes('\n'),
-    hasEscapedNewlines: raw.includes('\\n'),
-  }), { headers: { 'Content-Type': 'application/json' } });
-}
+    
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS });
