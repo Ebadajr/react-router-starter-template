@@ -29,14 +29,6 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-  if (url.pathname === '/api/debug-sa' && request.method === 'GET') {
-  const raw = env.GOOGLE_SERVICE_ACCOUNT_JSON ?? 'undefined';
-  const keyIdx = raw.indexOf('private_key');
-  return new Response(JSON.stringify({
-    around_key: raw.slice(keyIdx, keyIdx + 100),
-    length: raw.length,
-  }), { headers: { 'Content-Type': 'application/json' } });
-}
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS });

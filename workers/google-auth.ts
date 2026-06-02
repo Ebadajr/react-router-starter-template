@@ -39,23 +39,21 @@ export async function getGoogleToken(
 }
 
 function parseServiceAccount(raw: string): ServiceAccount {
-  const cleaned = raw.replace(/\\"/g, '"').replace(/\\\\n/g, '\\n');
-  try {
-    const sa = JSON.parse(cleaned) as ServiceAccount;
-    sa.private_key = sa.private_key.replace(/\\n/g, '\n');
-    return sa;
-  } catch {
-    // fallback to regex
-    function extract(field: string): string {
-      const match = cleaned.match(new RegExp(`"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`));
-      if (!match) throw new Error(`Missing field: ${field}`);
-      return match[1].replace(/\\n/g, '\n');
-    }
-    return {
-      client_email: extract('client_email'),
-      private_key:  extract('private_key'),
-    };
+  // Unescape the whole string first
+  const cleaned = raw
+    .replace(/\\"/g, '"')
+    .replace(/\\\\n/g, '\\n');
+
+  function extract(field: string): string {
+    const match = cleaned.match(new RegExp(`"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`));
+    if (!match) throw new Error(`Missing field: ${field}`);
+    return match[1].replace(/\\n/g, '\n');
   }
+
+  return {
+    client_email: extract('client_email'),
+    private_key:  extract('private_key'),
+  };
 }
 
 async function _fetchAccessToken(sa: ServiceAccount, scopes: string[]): Promise<string> {
