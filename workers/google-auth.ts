@@ -32,29 +32,15 @@ export async function getGoogleToken(
     return cached.token;
   }
 
-  const sa = parseServiceAccount(serviceAccountJSON);
+  const sa = JSON.parse(serviceAccountJSON) as ServiceAccount;
+  // Ensure private key newlines are real newlines
+  sa.private_key = sa.private_key.replace(/\\n/g, '\n');
+
   const token = await _fetchAccessToken(sa, scopes);
   _cache.set(cacheKey, { token, expiresAt: Date.now() + 55 * 60 * 1000 });
   return token;
 }
 
-function parseServiceAccount(raw: string): ServiceAccount {
-  // Unescape the whole string first
-  const cleaned = raw
-    .replace(/\\"/g, '"')
-    .replace(/\\\\n/g, '\\n');
-
-  function extract(field: string): string {
-    const match = cleaned.match(new RegExp(`"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`));
-    if (!match) throw new Error(`Missing field: ${field}`);
-    return match[1].replace(/\\n/g, '\n');
-  }
-
-  return {
-    client_email: extract('client_email'),
-    private_key:  extract('private_key'),
-  };
-}
 
 async function _fetchAccessToken(sa: ServiceAccount, scopes: string[]): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
