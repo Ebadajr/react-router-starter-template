@@ -32,10 +32,17 @@ export async function getGoogleToken(
     return cached.token;
   }
 
-  const cleanedJSON = serviceAccountJSON.replace(/\\n/g, '\n');
-  const sa = JSON.parse(cleanedJSON) as ServiceAccount;
-  const token = await _fetchAccessToken(sa, scopes);
+  // Extract private_key before parsing to avoid JSON control character issues.
+  // The key may contain real newlines (invalid in JSON) or escaped \n sequences.
+  const keyMatch = serviceAccountJSON.match(/"private_key"\s*:\s*"([\s\S]*?)(?<!\\)"/);
+  const privateKey = keyMatch ? keyMatch[1].replace(/\\n/g, '\n') : '';
 
+  // Remove the private_key from the JSON before parsing, then add it back
+  const safeJSON = serviceAccountJSON.replace(/"private_key"\s*:\s*"[\s\S]*?(?<!\\)"/, '"private_key": "__PLACEHOLDER__"');
+  const sa = JSON.parse(safeJSON) as ServiceAccount;
+  sa.private_key = privateKey;
+
+  const token = await _fetchAccessToken(sa, scopes);
   _cache.set(cacheKey, { token, expiresAt: Date.now() + 55 * 60 * 1000 });
   return token;
 }
