@@ -29,18 +29,12 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === '/api/debug-sa' && request.method === 'GET') {
+  if (url.pathname === '/api/debug-sa' && request.method === 'GET') {
   const raw = env.GOOGLE_SERVICE_ACCOUNT_JSON ?? 'undefined';
-  const cleaned = raw.replace(/\\"/g, '"').replace(/\\\\n/g, '\\n');
-  const keyMatch = cleaned.match(/"private_key"\s*:\s*"((?:[^"\\\\]|\\\\.)*)"/);
-  const key = keyMatch?.[1].replace(/\\n/g, '\n') ?? 'not found';
+  const keyIdx = raw.indexOf('private_key');
   return new Response(JSON.stringify({
-    client_email: cleaned.match(/"client_email"[^"]*"([^"]+)"/)?.[1],
-    key_start: key.slice(0, 80),
-    key_end: key.slice(-80),
-    key_length: key.length,
-    has_begin: key.includes('BEGIN PRIVATE KEY'),
-    has_end: key.includes('END PRIVATE KEY'),
+    around_key: raw.slice(keyIdx, keyIdx + 100),
+    length: raw.length,
   }), { headers: { 'Content-Type': 'application/json' } });
 }
 
