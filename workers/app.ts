@@ -30,7 +30,27 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/api/debug-sa' && request.method === 'GET') {
   const raw = env.GOOGLE_SERVICE_ACCOUNT_JSON ?? 'undefined';
-  return new Response(raw, { headers: { 'Content-Type': 'text/plain' } });
+  try {
+    const parsed = JSON.parse(raw) as { client_email: string; private_key: string };
+    return new Response(JSON.stringify({
+      success: true,
+      client_email: parsed.client_email,
+      sheet_id: env.GOOGLE_SHEET_ID,
+      worksheet: env.GOOGLE_WORKSHEET_NAME,
+      key_length: parsed.private_key?.length,
+    }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    const err = e as SyntaxError;
+    const match = err.message.match(/position (\d+)/);
+    const pos = match ? parseInt(match[1]) : -1;
+    return new Response(JSON.stringify({
+      success: false,
+      error: err.message,
+      pos,
+      char_at_pos: raw.charCodeAt(pos),
+      char_display: raw.slice(pos - 5, pos + 5),
+    }), { headers: { 'Content-Type': 'application/json' } });
+  }
 }
 
 
