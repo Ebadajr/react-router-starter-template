@@ -1,14 +1,15 @@
 import { clearSession } from '../auth';
-import type { AppUser } from '../types';
-import type { CaseStatus } from '../types';
-import { STATUS_OPTIONS } from '../types';
+import type { AppUser, CaseStatus, Market } from '../types';
+import { STATUS_OPTIONS, MARKETS } from '../types';
 
 interface TopBarProps {
   user: AppUser;
+  market: Market;
   uidSearch: string;
   statusFilter: CaseStatus | '';
   onUidSearch: (v: string) => void;
   onStatusFilter: (v: CaseStatus | '') => void;
+  onMarketChange: (m: Market) => void;
   onRefresh: () => void;
   onSignOut: () => void;
   connected: boolean;
@@ -16,19 +17,21 @@ interface TopBarProps {
 }
 
 export function TopBar({
-  user, uidSearch, statusFilter,
-  onUidSearch, onStatusFilter, onRefresh, onSignOut,
-  connected, rowCount,
+  user, market, uidSearch, statusFilter,
+  onUidSearch, onStatusFilter, onMarketChange,
+  onRefresh, onSignOut, connected, rowCount,
 }: TopBarProps) {
   const today = new Date().toLocaleDateString('en-GB', {
     weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
   });
 
+  const accessibleMarkets = MARKETS.filter(m => user.markets.includes(m.id));
+
   return (
     <header className="flex items-center justify-between px-5 h-[52px] bg-white border-b border-gray-100 flex-shrink-0">
       {/* Left */}
       <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center text-gray-400 text-sm">
+        <div className="w-8 h-8 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center text-sm">
           📋
         </div>
         <div>
@@ -36,9 +39,35 @@ export function TopBar({
           <div className="text-[11px] text-gray-400">Enhanced Due Diligence Portal</div>
         </div>
         <div className="w-px h-5 bg-gray-200" />
+
+        {/* Market switcher */}
+        {accessibleMarkets.length > 1 ? (
+          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
+            {accessibleMarkets.map(m => (
+              <button
+                key={m.id}
+                onClick={() => onMarketChange(m.id)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                  market === m.id
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <span>{m.flag}</span> {m.label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-gray-100 rounded-lg text-xs font-medium text-gray-700">
+            <span>{MARKETS.find(m => m.id === market)?.flag}</span>
+            {MARKETS.find(m => m.id === market)?.label}
+          </div>
+        )}
+
         <span className="text-xs text-gray-400">
           Welcome, <strong className="text-gray-800 font-medium">{user.displayName}</strong>
         </span>
+
         {/* Connection status */}
         <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 rounded-md border border-gray-100">
           <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-green-500' : 'bg-red-400'}`} />
@@ -67,7 +96,7 @@ export function TopBar({
         </select>
         <button
           onClick={onRefresh}
-          className="text-xs px-3 py-1.5 border border-gray-200 rounded-md bg-white text-gray-700 hover:bg-gray-50 flex items-center gap-1"
+          className="text-xs px-3 py-1.5 border border-gray-200 rounded-md bg-white text-gray-700 hover:bg-gray-50"
         >
           ↻ Refresh
         </button>

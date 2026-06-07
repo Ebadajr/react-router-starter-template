@@ -40,6 +40,8 @@
 		"check": "tsc && react-router build && wrangler deploy --dry-run",
 		"deploy": "wrangler deploy",
 		"dev": "react-router dev",
+		"dev:worker": "wrangler dev --port 8787",
+		"dev:all": "react-router dev & wrangler dev --port 8787 & wait",
 		"preview": "npm run build && vite preview",
 		"typecheck": "npm run typegen && tsc -b"
 	},

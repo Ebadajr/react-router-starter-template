@@ -9,4 +9,9 @@ export default defineConfig({
     reactRouter(),
     tsconfigPaths(),
   ],
+  server: {
+    proxy: {
+      '/api': 'http://localhost:8787',
+    },
+  },
 });
