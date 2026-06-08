@@ -1,9 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
-import { loadSession, clearSession, USERS } from '../auth';
+import {
+  loadSession, clearSession,
+  loadRuntimeUsers, saveRuntimeUsers,
+  loadUserPermissions, saveUserPermissions,
+} from '../auth';
 import { loadSheet, assignRows } from '../api';
 import { parseSheetData, resolveStatus } from '../sheetParser';
-import type { EddRow, CaseStatus } from '../types';
+import type { EddRow, CaseStatus, Market, AppUser, UserPermissions, TabId, ActionId } from '../types';
+import { ALL_TABS, ALL_ACTIONS, DEFAULT_PERMISSIONS, MARKETS } from '../types';
 import { Badge } from '../components/Badge';
 
 interface UserPerf {
@@ -16,6 +21,8 @@ interface UserPerf {
   pending: number;
 }
 
+type AdminTab = 'overview' | 'users' | 'assign' | 'access';
+
 export default function AdminPage() {
   const navigate = useNavigate();
   const user = loadSession();
@@ -25,17 +32,18 @@ export default function AdminPage() {
     else if (user.role !== 'admin') navigate('/dashboard');
   }, []);
 
-  const [rows, setRows] = useState<EddRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [statusOverrides] = useState<Record<number, CaseStatus>>({});
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'assign'>('overview');
+  const [market, setMarket]         = useState<Market>('EG');
+  const [rows, setRows]             = useState<EddRow[]>([]);
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState<string | null>(null);
+  const [statusOverrides]           = useState<Record<number, CaseStatus>>({});
+  const [activeTab, setActiveTab]   = useState<AdminTab>('overview');
 
-  const fetchSheet = useCallback(async () => {
+  const fetchSheet = useCallback(async (m: Market) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await loadSheet();
+      const data = await loadSheet(m);
       setRows(parseSheetData(data));
     } catch (e) {
       setError((e as Error).message);
@@ -44,11 +52,12 @@ export default function AdminPage() {
     }
   }, []);
 
-  useEffect(() => { fetchSheet(); }, [fetchSheet]);
+  useEffect(() => { fetchSheet(market); }, [market, fetchSheet]);
 
   if (!user) return null;
 
-  const nonAdminUsers = Object.values(USERS).filter(u => u.role !== 'admin');
+  const runtimeUsers = loadRuntimeUsers();
+  const nonAdminUsers = Object.values(runtimeUsers).filter(u => u.role !== 'admin');
   const statuses = rows.map(r => resolveStatus(r, statusOverrides));
   const counts = {
     total:       rows.length,
@@ -59,32 +68,54 @@ export default function AdminPage() {
   };
 
   const perfData: UserPerf[] = nonAdminUsers.map(u => {
-    const userRows = rows.filter(r => r.assignedTo?.trim().toLowerCase() === u.username.toLowerCase());
+    const userRows    = rows.filter(r => r.assignedTo?.trim().toLowerCase() === u.username.toLowerCase());
     const userStatuses = userRows.map(r => resolveStatus(r, statusOverrides));
     const done        = userStatuses.filter(s => s === 'Done').length;
     const underReview = userStatuses.filter(s => s === 'Under Review').length;
     const formSent    = userStatuses.filter(s => s === 'Form Sent').length;
     return {
-      username: u.username,
-      display:  u.displayName,
-      assigned: userRows.length,
+      username:    u.username,
+      display:     u.displayName,
+      assigned:    userRows.length,
       done, underReview, formSent,
       pending: Math.max(0, userRows.length - done - underReview - formSent),
     };
   });
 
+  const tabs: { key: AdminTab; label: string }[] = [
+    { key: 'overview', label: 'Overview & Performance' },
+    { key: 'users',    label: 'User Management' },
+    { key: 'assign',   label: 'Assign Rows' },
+    { key: 'access',   label: 'Access Control' },
+  ];
+
   return (
     <div className="flex flex-col h-screen bg-[#f7f7f5] overflow-hidden">
       <header className="flex items-center justify-between px-5 h-[52px] bg-white border-b border-gray-100 flex-shrink-0">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-gray-900">📋 EDD Tracker</span>
+          <span className="text-sm font-semibold text-gray-900 tracking-tight">Compliance Portal</span>
           <div className="w-px h-4 bg-gray-200" />
           <span className="text-xs text-gray-400">Admin Dashboard</span>
           {loading && <span className="text-xs text-blue-400 animate-pulse">Loading…</span>}
+
+          {/* Market selector */}
+          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5 ml-2">
+            {MARKETS.map(m => (
+              <button
+                key={m.id}
+                onClick={() => setMarket(m.id)}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                  market === m.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {m.flag} {m.label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">{user.displayName}</span>
-          <button onClick={fetchSheet} className="text-xs px-3 py-1.5 border border-gray-200 rounded bg-white text-gray-700 hover:bg-gray-50">
+          <button onClick={() => fetchSheet(market)} className="text-xs px-3 py-1.5 border border-gray-200 rounded bg-white text-gray-700 hover:bg-gray-50">
             ↻ Refresh
           </button>
           <button onClick={() => { clearSession(); navigate('/'); }} className="text-xs px-2.5 py-1.5 border border-gray-200 rounded text-gray-600 hover:bg-gray-50">
@@ -98,11 +129,7 @@ export default function AdminPage() {
       )}
 
       <div className="flex px-5 bg-white border-b border-gray-100 flex-shrink-0">
-        {([
-          { key: 'overview', label: 'Overview & Performance' },
-          { key: 'users',    label: 'User Management' },
-          { key: 'assign',   label: 'Assign Rows' },
-        ] as const).map(t => (
+        {tabs.map(t => (
           <button
             key={t.key}
             onClick={() => setActiveTab(t.key)}
@@ -118,11 +145,14 @@ export default function AdminPage() {
       <div className="flex-1 overflow-y-auto p-6">
         {activeTab === 'overview' && <OverviewTab counts={counts} perfData={perfData} rows={rows} statusOverrides={statusOverrides} />}
         {activeTab === 'users'    && <UsersTab />}
-        {activeTab === 'assign'   && <AssignTab rows={rows} onAssigned={fetchSheet} />}
+        {activeTab === 'assign'   && <AssignTab rows={rows} market={market} onAssigned={() => fetchSheet(market)} />}
+        {activeTab === 'access'   && <AccessControlTab />}
       </div>
     </div>
   );
 }
+
+// ── Overview ──────────────────────────────────────────────────────────────────
 
 function OverviewTab({ counts, perfData, rows, statusOverrides }: {
   counts: Record<string, number>;
@@ -194,11 +224,11 @@ function OverviewTab({ counts, perfData, rows, statusOverrides }: {
               <tr key={r.idx} className="border-b border-gray-50 hover:bg-gray-50">
                 <td className="px-4 py-2 font-medium text-gray-900">{r.uid}</td>
                 <td className="px-4 py-2 text-gray-600">{r.assignedTo}</td>
-                <td className="px-4 py-2"><Badge status={resolveStatus(r, {})} /></td>
+                <td className="px-4 py-2"><Badge status={resolveStatus(r, statusOverrides)} /></td>
               </tr>
             ))}
             {rows.filter(r => r.assignedTo?.trim()).length === 0 && (
-              <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400">No assignments yet — use the Assign Rows tab</td></tr>
+              <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400">No assignments yet</td></tr>
             )}
           </tbody>
         </table>
@@ -207,44 +237,193 @@ function OverviewTab({ counts, perfData, rows, statusOverrides }: {
   );
 }
 
+// ── User Management ───────────────────────────────────────────────────────────
+
+interface NewUserForm {
+  displayName: string;
+  username: string;
+  role: 'user' | 'admin';
+  markets: Market[];
+}
+
 function UsersTab() {
+  const [users, setUsers] = useState<Record<string, AppUser>>(loadRuntimeUsers);
+  const [showForm, setShowForm] = useState(false);
+  const [editTarget, setEditTarget] = useState<string | null>(null);
+  const [form, setForm] = useState<NewUserForm>({ displayName: '', username: '', role: 'user', markets: ['EG'] });
+  const [msg, setMsg] = useState<string | null>(null);
+
+  function persist(next: Record<string, AppUser>) {
+    saveRuntimeUsers(next);
+    setUsers(next);
+  }
+
+  function initAdd() {
+    setForm({ displayName: '', username: '', role: 'user', markets: ['EG'] });
+    setEditTarget(null);
+    setShowForm(true);
+    setMsg(null);
+  }
+
+  function initEdit(u: AppUser) {
+    setForm({ displayName: u.displayName, username: u.username, role: u.role as 'user' | 'admin', markets: [...u.markets] });
+    setEditTarget(u.username);
+    setShowForm(true);
+    setMsg(null);
+  }
+
+  function handleRemove(username: string) {
+    if (!confirm(`Remove user "${username}"?`)) return;
+    const next = { ...users };
+    delete next[username];
+    persist(next);
+    setMsg(`Removed ${username}`);
+  }
+
+  function handleSave() {
+    const { displayName, username, role, markets } = form;
+    if (!displayName.trim() || !username.trim()) {
+      setMsg('Display name and username are required.');
+      return;
+    }
+    if (!editTarget && users[username]) {
+      setMsg(`Username "${username}" already exists.`);
+      return;
+    }
+    const avatar = displayName.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+    const key = editTarget ?? username;
+    const next = { ...users, [key]: { username: key, displayName: displayName.trim(), role, avatar, markets } };
+    persist(next);
+    setShowForm(false);
+    setMsg(editTarget ? `Updated ${key}` : `Added ${key}`);
+  }
+
+  function toggleMarket(m: Market) {
+    setForm(f => ({
+      ...f,
+      markets: f.markets.includes(m) ? f.markets.filter(x => x !== m) : [...f.markets, m],
+    }));
+  }
+
   return (
     <div className="max-w-2xl">
-      <SectionTitle>Current users</SectionTitle>
-      <div className="flex flex-col gap-2 mb-8">
-        {Object.values(USERS).map(u => (
+      <div className="flex items-center justify-between mb-4">
+        <SectionTitle>Team members</SectionTitle>
+        <button onClick={initAdd} className="text-xs px-3 py-1.5 bg-gray-900 text-white rounded hover:bg-gray-700">
+          + Add user
+        </button>
+      </div>
+
+      {msg && (
+        <div className="text-xs px-3 py-2 rounded-lg mb-4 bg-green-50 text-green-700 border border-green-100">
+          {msg}
+        </div>
+      )}
+
+      {showForm && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
+          <div className="text-xs font-medium text-gray-700 mb-4">
+            {editTarget ? `Edit ${editTarget}` : 'New user'}
+          </div>
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-gray-400 block mb-1">Display name</label>
+              <input
+                value={form.displayName}
+                onChange={e => setForm(f => ({ ...f, displayName: e.target.value }))}
+                className="w-full text-xs px-3 py-2 border border-gray-200 rounded bg-white text-gray-800 focus:outline-none focus:border-gray-400"
+                placeholder="Sara Nour"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-gray-400 block mb-1">Username (login key)</label>
+              <input
+                value={form.username}
+                onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
+                disabled={!!editTarget}
+                className="w-full text-xs px-3 py-2 border border-gray-200 rounded bg-white text-gray-800 focus:outline-none focus:border-gray-400 disabled:opacity-50"
+                placeholder="Sara"
+              />
+            </div>
+          </div>
+          <div className="flex gap-6 mb-4">
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-gray-400 block mb-1">Role</label>
+              <select
+                value={form.role}
+                onChange={e => setForm(f => ({ ...f, role: e.target.value as 'user' | 'admin' }))}
+                className="text-xs px-3 py-2 border border-gray-200 rounded bg-white text-gray-800 focus:outline-none"
+              >
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-gray-400 block mb-1">Markets</label>
+              <div className="flex gap-2">
+                {MARKETS.map(m => (
+                  <label key={m.id} className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.markets.includes(m.id)}
+                      onChange={() => toggleMarket(m.id)}
+                    />
+                    {m.flag} {m.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleSave} className="text-xs px-4 py-1.5 bg-gray-900 text-white rounded hover:bg-gray-700">
+              Save
+            </button>
+            <button onClick={() => { setShowForm(false); setMsg(null); }} className="text-xs px-3 py-1.5 border border-gray-200 rounded text-gray-600 hover:bg-gray-50">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2">
+        {Object.values(users).map(u => (
           <div key={u.username} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg px-4 py-3">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-medium text-gray-600">
                 {u.avatar}
               </div>
-              <span className="text-sm font-medium text-gray-900">{u.displayName}</span>
+              <div>
+                <span className="text-sm font-medium text-gray-900">{u.displayName}</span>
+                <div className="text-[11px] text-gray-400">{u.markets.join(', ')}</div>
+              </div>
             </div>
-            <span className={`text-[10px] px-2.5 py-1 rounded font-medium uppercase tracking-wider ${
-              u.role === 'admin' ? 'bg-gray-900 text-white' : 'bg-blue-50 text-blue-700'
-            }`}>
-              {u.role}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className={`text-[10px] px-2.5 py-1 rounded font-medium uppercase tracking-wider ${
+                u.role === 'admin' ? 'bg-gray-900 text-white' : 'bg-blue-50 text-blue-700'
+              }`}>
+                {u.role}
+              </span>
+              <button onClick={() => initEdit(u)} className="text-[11px] px-2.5 py-1 border border-gray-200 rounded text-gray-600 hover:bg-gray-50">
+                Edit
+              </button>
+              {u.role !== 'admin' && (
+                <button onClick={() => handleRemove(u.username)} className="text-[11px] px-2.5 py-1 border border-red-100 rounded text-red-500 hover:bg-red-50">
+                  Remove
+                </button>
+              )}
+            </div>
           </div>
         ))}
-      </div>
-
-      <SectionTitle>Adding users</SectionTitle>
-      <div className="bg-white border border-gray-100 rounded-xl p-4 text-xs text-gray-600 leading-relaxed">
-        <p className="mb-3">Edit the <code className="bg-gray-100 px-1 py-0.5 rounded">USERS</code> object in <code className="bg-gray-100 px-1 py-0.5 rounded">app/auth.ts</code>:</p>
-        <pre className="bg-gray-50 border border-gray-100 rounded-lg p-3 text-[11px] overflow-x-auto">{`export const USERS = {
-  Admin:   { username: 'Admin',   displayName: 'Admin',          role: 'admin', avatar: 'AD' },
-  Sara:    { username: 'Sara',    displayName: 'Sara Nour',      role: 'user',  avatar: 'SN' },
-  // Add more:
-  // NewUser: { username: 'NewUser', displayName: 'New User', role: 'user', avatar: 'NU' },
-};`}</pre>
       </div>
     </div>
   );
 }
 
-function AssignTab({ rows, onAssigned }: { rows: EddRow[]; onAssigned: () => void }) {
-  const nonAdminUsers = Object.values(USERS).filter(u => u.role !== 'admin');
+// ── Assign Rows ───────────────────────────────────────────────────────────────
+
+function AssignTab({ rows, market, onAssigned }: { rows: EddRow[]; market: Market; onAssigned: () => void }) {
+  const users = loadRuntimeUsers();
+  const nonAdminUsers = Object.values(users).filter(u => u.role !== 'admin');
   const [targetUser, setTargetUser] = useState(nonAdminUsers[0]?.username ?? '');
   const [filterMode, setFilterMode] = useState<'unassigned' | 'all'>('unassigned');
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -270,9 +449,9 @@ function AssignTab({ rows, onAssigned }: { rows: EddRow[]; onAssigned: () => voi
     setSaving(true);
     setSaveMsg(null);
     try {
-      await assignRows([...selected], targetUser);
-      const displayName = USERS[targetUser]?.displayName ?? targetUser;
-      setSaveMsg(`✓ Assigned ${selected.size} rows to ${displayName}`);
+      await assignRows([...selected], targetUser, market);
+      const displayName = users[targetUser]?.displayName ?? targetUser;
+      setSaveMsg(`Assigned ${selected.size} rows to ${displayName}`);
       setSelected(new Set());
       onAssigned();
     } catch (e) {
@@ -315,7 +494,7 @@ function AssignTab({ rows, onAssigned }: { rows: EddRow[]; onAssigned: () => voi
 
       {saveMsg && (
         <div className={`text-xs px-3 py-2 rounded-lg mb-4 border ${
-          saveMsg.startsWith('✓') ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-600 border-red-100'
+          saveMsg.startsWith('⚠') ? 'bg-red-50 text-red-600 border-red-100' : 'bg-green-50 text-green-700 border-green-100'
         }`}>
           {saveMsg}
         </div>
@@ -336,7 +515,7 @@ function AssignTab({ rows, onAssigned }: { rows: EddRow[]; onAssigned: () => voi
             disabled={saving}
             className="text-xs px-4 py-1.5 bg-gray-900 text-white rounded hover:bg-gray-700 disabled:opacity-50"
           >
-            {saving ? 'Assigning…' : `Assign ${selected.size} rows to ${USERS[targetUser]?.displayName}`}
+            {saving ? 'Assigning…' : `Assign ${selected.size} rows to ${users[targetUser]?.displayName}`}
           </button>
         )}
       </div>
@@ -362,6 +541,159 @@ function AssignTab({ rows, onAssigned }: { rows: EddRow[]; onAssigned: () => voi
     </div>
   );
 }
+
+// ── Access Control ────────────────────────────────────────────────────────────
+
+function AccessControlTab() {
+  const [users] = useState<Record<string, AppUser>>(loadRuntimeUsers);
+  const nonAdminUsers = Object.values(users).filter(u => u.role !== 'admin');
+  const [selectedUser, setSelectedUser] = useState<string>(nonAdminUsers[0]?.username ?? '');
+  const [perms, setPerms] = useState<UserPermissions>(() =>
+    selectedUser ? loadUserPermissions(selectedUser) : { ...DEFAULT_PERMISSIONS }
+  );
+  const [saved, setSaved] = useState(false);
+
+  function loadForUser(username: string) {
+    setSelectedUser(username);
+    setPerms(loadUserPermissions(username));
+    setSaved(false);
+  }
+
+  function toggleTab(id: TabId) {
+    setPerms(p => ({
+      ...p,
+      tabs: p.tabs.includes(id) ? p.tabs.filter(t => t !== id) : [...p.tabs, id],
+    }));
+    setSaved(false);
+  }
+
+  function toggleAction(id: ActionId) {
+    setPerms(p => ({
+      ...p,
+      actions: p.actions.includes(id) ? p.actions.filter(a => a !== id) : [...p.actions, id],
+    }));
+    setSaved(false);
+  }
+
+  function handleSave() {
+    if (!selectedUser) return;
+    saveUserPermissions(selectedUser, perms);
+    setSaved(true);
+  }
+
+  function handleResetDefaults() {
+    setPerms({ ...DEFAULT_PERMISSIONS });
+    setSaved(false);
+  }
+
+  if (nonAdminUsers.length === 0) {
+    return (
+      <div className="max-w-2xl">
+        <SectionTitle>Access Control</SectionTitle>
+        <p className="text-xs text-gray-400">No non-admin users found. Add users in the User Management tab first.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-3xl">
+      <div className="flex items-center justify-between mb-6">
+        <SectionTitle>Access Control</SectionTitle>
+        <p className="text-[11px] text-gray-400">Configure tabs and actions each user can access</p>
+      </div>
+
+      <div className="flex gap-6">
+        {/* User selector sidebar */}
+        <div className="w-44 flex-shrink-0">
+          <div className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Users</div>
+          <div className="flex flex-col gap-1">
+            {nonAdminUsers.map(u => (
+              <button
+                key={u.username}
+                onClick={() => loadForUser(u.username)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-left transition-colors ${
+                  selectedUser === u.username
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-white border border-gray-100 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium flex-shrink-0 ${
+                  selectedUser === u.username ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {u.avatar}
+                </div>
+                <span className="truncate">{u.displayName}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Permissions panel */}
+        {selectedUser && (
+          <div className="flex-1">
+            <div className="bg-white border border-gray-100 rounded-xl p-5 mb-4">
+              <div className="text-xs font-medium text-gray-700 mb-4">
+                Tabs — {users[selectedUser]?.displayName}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {ALL_TABS.map(t => (
+                  <label key={t.id} className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={perms.tabs.includes(t.id)}
+                      onChange={() => toggleTab(t.id)}
+                      className="w-3.5 h-3.5"
+                    />
+                    <span className="text-xs text-gray-700">{t.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white border border-gray-100 rounded-xl p-5 mb-4">
+              <div className="text-xs font-medium text-gray-700 mb-4">
+                Actions — {users[selectedUser]?.displayName}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {ALL_ACTIONS.map(a => (
+                  <label key={a.id} className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={perms.actions.includes(a.id)}
+                      onChange={() => toggleAction(a.id)}
+                      className="w-3.5 h-3.5"
+                    />
+                    <span className="text-xs text-gray-700">{a.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSave}
+                className="text-xs px-4 py-1.5 bg-gray-900 text-white rounded hover:bg-gray-700"
+              >
+                Save permissions
+              </button>
+              <button
+                onClick={handleResetDefaults}
+                className="text-xs px-3 py-1.5 border border-gray-200 rounded text-gray-600 hover:bg-gray-50"
+              >
+                Reset to defaults
+              </button>
+              {saved && (
+                <span className="text-xs text-green-600">Saved</span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Shared ────────────────────────────────────────────────────────────────────
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <div className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-3">{children}</div>;

@@ -19,7 +19,7 @@ export default function LoginPage() {
       style={{ fontFamily: "'DM Sans', sans-serif" }}>
       <div className="w-[420px] bg-white border border-[#e8e8e4] rounded-2xl px-10 py-11 shadow-sm">
         <div className="text-xl font-semibold text-gray-900 mb-1 tracking-tight">
-          📋 EDD Tracker
+          Compliance Portal
         </div>
         <div className="text-sm text-gray-400 mb-8">Select your profile to continue</div>
 

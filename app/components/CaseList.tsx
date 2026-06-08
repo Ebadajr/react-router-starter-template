@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { EddRow, CaseStatus, Market } from '../types';
+import type { EddRow, CaseStatus, UserPermissions } from '../types';
 import { STATUS_OPTIONS } from '../types';
 import { resolveStatus } from '../sheetParser';
 import { Badge } from './Badge';
@@ -12,7 +12,7 @@ interface CaseListProps {
   hiddenRows: Set<number>;
   selectedIdx: number | null;
   currentUser: string;
-  market: Market;
+  permissions: UserPermissions;
   onSelect: (idx: number) => void;
   onBulkAction: (indices: number[], action: CaseStatus | 'hide' | 'delete') => void;
   onSelfAssign: (idx: number) => void;
@@ -20,10 +20,12 @@ interface CaseListProps {
 
 export function CaseList({
   rows, statusOverrides, hiddenRows, selectedIdx,
-  currentUser, market, onSelect, onBulkAction, onSelfAssign,
+  currentUser, permissions, onSelect, onBulkAction, onSelfAssign,
 }: CaseListProps) {
   const [page, setPage] = useState(0);
   const [checked, setChecked] = useState<Set<number>>(new Set());
+
+  const canSelfAssign = permissions.actions.includes('self_assign');
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
@@ -90,11 +92,11 @@ export function CaseList({
           </div>
         )}
         {slice.map(r => {
-          const status    = resolveStatus(r, statusOverrides);
-          const isHidden  = hiddenRows.has(r.idx);
-          const isSelected = selectedIdx === r.idx;
-          const isUnassigned = !r.assignedTo?.trim();
+          const status       = resolveStatus(r, statusOverrides);
+          const isHidden     = hiddenRows.has(r.idx);
+          const isSelected   = selectedIdx === r.idx;
           const isAssignedToMe = r.assignedTo?.trim().toLowerCase() === currentUser.toLowerCase();
+          const showAssignBtn  = canSelfAssign && !isAssignedToMe;
 
           return (
             <div key={r.idx}
@@ -114,17 +116,20 @@ export function CaseList({
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-[13px] font-medium text-gray-900">{r.uid}</span>
 
-                  {/* Stale flag */}
                   {r.isStale && (
                     <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-100 font-medium">
                       ⚠ {r.daysSinceSubmission}d
                     </span>
                   )}
 
-                  {/* Assignment indicator */}
                   {isAssignedToMe && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100">
                       mine
+                    </span>
+                  )}
+                  {r.assignedTo?.trim() && !isAssignedToMe && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-50 text-gray-400 border border-gray-100 truncate max-w-[80px]">
+                      → {r.assignedTo}
                     </span>
                   )}
                   {isHidden && (
@@ -135,8 +140,7 @@ export function CaseList({
                   {r.funding} · {r.country}
                 </div>
 
-                {/* Self-assign button for unassigned rows */}
-                {isUnassigned && (
+                {showAssignBtn && (
                   <button
                     onClick={e => { e.stopPropagation(); onSelfAssign(r.idx); }}
                     className="mt-1 text-[10px] px-2 py-0.5 border border-gray-200 rounded bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700"

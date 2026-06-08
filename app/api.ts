@@ -11,7 +11,6 @@ async function _get<T>(path: string): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
-
 async function _post<T>(path: string, body: unknown): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, {
     method: 'POST',
@@ -33,6 +32,11 @@ export async function writeAction(rowIndex: number, action: string, market: Mark
   return _post<ActionResult>('/api/action', { rowIndex, action, market });
 }
 
+// Writes to the "Response" column — used for edd_accepted / edd_rejected / edd_requested
+export async function writeResponse(rowIndex: number, response: string, market: Market): Promise<ActionResult> {
+  return _post<ActionResult>('/api/response', { rowIndex, response, market });
+}
+
 export async function assignRows(rowIndices: number[], username: string, market: Market): Promise<AssignResult> {
   return _post<AssignResult>('/api/assign', { rowIndices, username, market });
 }
@@ -49,5 +53,4 @@ export async function fetchUserProfile(uid: string): Promise<UserProfile> {
   return _get<UserProfile>(`/api/usertool?uid=${encodeURIComponent(uid)}`);
 }
 
-// Re-export types for convenience
 export type { SheetData, ActionResult, AssignResult };

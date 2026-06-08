@@ -31,12 +31,9 @@ export function TopBar({
     <header className="flex items-center justify-between px-5 h-[52px] bg-white border-b border-gray-100 flex-shrink-0">
       {/* Left */}
       <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center text-sm">
-          📋
-        </div>
         <div>
-          <div className="text-sm font-medium text-gray-900">EDD Tracker</div>
-          <div className="text-[11px] text-gray-400">Enhanced Due Diligence Portal</div>
+          <div className="text-sm font-semibold text-gray-900 tracking-tight">Compliance Portal</div>
+          <div className="text-[11px] text-gray-400">Internal Compliance Tool</div>
         </div>
         <div className="w-px h-5 bg-gray-200" />
 

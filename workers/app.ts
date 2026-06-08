@@ -63,6 +63,9 @@ export default {
     if (url.pathname === '/api/action' && request.method === 'POST') {
       return withCors(await handleWriteAction(request, env));
     }
+    if (url.pathname === '/api/response' && request.method === 'POST') {
+      return withCors(await handleWriteResponse(request, env));
+    }
     if (url.pathname === '/api/assign' && request.method === 'POST') {
       return withCors(await handleAssign(request, env));
     }
@@ -119,7 +122,7 @@ async function handleSheetsLoad(url: URL, env: Env): Promise<Response> {
   }
 }
 
-// ── POST /api/action ──────────────────────────────────────────────────────────
+// ── POST /api/action — writes to action_taken column ─────────────────────────
 
 async function handleWriteAction(request: Request, env: Env): Promise<Response> {
   try {
@@ -145,6 +148,37 @@ async function handleWriteAction(request: Request, env: Env): Promise<Response> 
 
     if (!resp.ok) return jsonError(`Sheets write error (${resp.status}): ${await resp.text()}`, resp.status);
     return jsonOk({ ok: true, rowIndex, action });
+  } catch (err) {
+    return jsonError((err as Error).message, 500);
+  }
+}
+
+// ── POST /api/response — writes to Response column ───────────────────────────
+
+async function handleWriteResponse(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = await request.json() as { rowIndex?: number; response?: string; market?: string };
+    const { rowIndex, response, market } = body;
+    if (rowIndex == null || response == null) return jsonError('rowIndex and response are required', 400);
+
+    const token = await getGoogleToken(env.GOOGLE_SERVICE_ACCOUNT_JSON, SHEETS_SCOPES);
+    const tabName = MARKET_WORKSHEETS[market ?? 'EG'] ?? env.GOOGLE_WORKSHEET_NAME ?? 'Response';
+
+    const colIdx = await findColumnIndex(token, env.GOOGLE_SHEET_ID, tabName, 'response');
+    if (colIdx === null) return jsonError("Column 'response' not found in sheet", 404);
+
+    const range = encodeURIComponent(`${tabName}!${toColLetter(colIdx)}${rowIndex + 2}`);
+    const resp = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${env.GOOGLE_SHEET_ID}/values/${range}?valueInputOption=RAW`,
+      {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values: [[response]] }),
+      },
+    );
+
+    if (!resp.ok) return jsonError(`Sheets write error (${resp.status}): ${await resp.text()}`, resp.status);
+    return jsonOk({ ok: true, rowIndex, action: response });
   } catch (err) {
     return jsonError((err as Error).message, 500);
   }

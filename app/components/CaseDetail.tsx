@@ -1,4 +1,4 @@
-import type { EddRow, CaseStatus } from '../types';
+import type { EddRow, CaseStatus, UserPermissions } from '../types';
 import { STATUS_OPTIONS } from '../types';
 import { resolveStatus } from '../sheetParser';
 import { Badge } from './Badge';
@@ -8,15 +8,21 @@ interface CaseDetailProps {
   row: EddRow | null;
   statusOverrides: Record<number, CaseStatus>;
   hiddenRows: Set<number>;
+  permissions: UserPermissions;
   onStatusChange: (idx: number, status: CaseStatus) => void;
+  onSendForm: (idx: number) => void;
+  onAcceptEdd: (idx: number) => void;
+  onRejectEdd: (idx: number) => void;
+  onSendDetailsToCx: (idx: number, currentStatus: CaseStatus) => void;
   onHide: (idx: number) => void;
   onDelete: (idx: number) => void;
   onClose: () => void;
 }
 
 export function CaseDetail({
-  row, statusOverrides, hiddenRows,
-  onStatusChange, onHide, onDelete, onClose,
+  row, statusOverrides, hiddenRows, permissions,
+  onStatusChange, onSendForm, onAcceptEdd, onRejectEdd,
+  onSendDetailsToCx, onHide, onDelete, onClose,
 }: CaseDetailProps) {
   if (!row) {
     return (
@@ -29,9 +35,10 @@ export function CaseDetail({
     );
   }
 
-  const status = resolveStatus(row, statusOverrides);
+  const status   = resolveStatus(row, statusOverrides);
   const isHidden = hiddenRows.has(row.idx);
   const initials = row.uid.slice(-3);
+  const can      = (a: string) => permissions.actions.includes(a as any);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-white">
@@ -67,12 +74,9 @@ export function CaseDetail({
 
       {/* Side-by-side panels */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left — submission */}
         <div className="flex-1 overflow-y-auto border-r border-gray-100 p-4">
           <SubmissionPanel row={row} />
         </div>
-
-        {/* Right — usertool */}
         <div className="flex-1 overflow-y-auto bg-gray-50">
           <UserToolPanel uid={row.uid} />
         </div>
@@ -80,44 +84,87 @@ export function CaseDetail({
 
       {/* Action footer */}
       <div className="flex items-center gap-2 px-5 py-2.5 border-t border-gray-100 flex-shrink-0 bg-white flex-wrap">
-        <select
-          value={status}
-          onChange={e => onStatusChange(row.idx, e.target.value as CaseStatus)}
-          className="text-xs px-2.5 py-1.5 border border-gray-200 rounded bg-white text-gray-700 focus:outline-none focus:border-gray-400 flex-shrink-0"
-        >
-          {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
-        </select>
-        <button
-          onClick={() => onStatusChange(row.idx, status)}
-          className="text-xs px-3 py-1.5 bg-gray-900 text-white rounded hover:bg-gray-700"
-        >
-          Save
-        </button>
-        <button
-          onClick={() => onStatusChange(row.idx, 'Form Sent')}
-          className="text-xs px-3 py-1.5 border border-gray-200 rounded text-gray-700 hover:bg-gray-50"
-        >
-          Send form
-        </button>
-        <button
-          onClick={() => onStatusChange(row.idx, 'Done')}
-          className="text-xs px-3 py-1.5 border border-gray-200 rounded text-gray-700 hover:bg-gray-50"
-        >
-          Mark done
-        </button>
+        {/* Status change */}
+        {can('change_status') && (
+          <>
+            <select
+              value={status}
+              onChange={e => onStatusChange(row.idx, e.target.value as CaseStatus)}
+              className="text-xs px-2.5 py-1.5 border border-gray-200 rounded bg-white text-gray-700 focus:outline-none focus:border-gray-400 flex-shrink-0"
+            >
+              {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
+            </select>
+            <button
+              onClick={() => onStatusChange(row.idx, status)}
+              className="text-xs px-3 py-1.5 bg-gray-900 text-white rounded hover:bg-gray-700"
+            >
+              Save
+            </button>
+          </>
+        )}
+
+        {/* EDD decision buttons */}
+        {can('accept_edd') && (
+          <button
+            onClick={() => onAcceptEdd(row.idx)}
+            className="text-xs px-3 py-1.5 border border-green-200 rounded text-green-700 bg-green-50 hover:bg-green-100"
+          >
+            Accept EDD
+          </button>
+        )}
+        {can('reject_edd') && (
+          <button
+            onClick={() => onRejectEdd(row.idx)}
+            className="text-xs px-3 py-1.5 border border-red-200 rounded text-red-600 bg-red-50 hover:bg-red-100"
+          >
+            Reject EDD
+          </button>
+        )}
+
+        {/* Send actions */}
+        {can('send_form') && (
+          <button
+            onClick={() => onSendForm(row.idx)}
+            className="text-xs px-3 py-1.5 border border-gray-200 rounded text-gray-700 hover:bg-gray-50"
+          >
+            Send form
+          </button>
+        )}
+        {can('send_details_to_cx') && (
+          <button
+            onClick={() => onSendDetailsToCx(row.idx, status)}
+            className="text-xs px-3 py-1.5 border border-gray-200 rounded text-gray-700 hover:bg-gray-50"
+          >
+            Send details to CX
+          </button>
+        )}
+        {can('mark_done') && (
+          <button
+            onClick={() => onStatusChange(row.idx, 'Done')}
+            className="text-xs px-3 py-1.5 border border-gray-200 rounded text-gray-700 hover:bg-gray-50"
+          >
+            Mark done
+          </button>
+        )}
+
         <div className="flex-1" />
-        <button
-          onClick={() => onHide(row.idx)}
-          className="text-xs px-3 py-1.5 border border-gray-200 rounded text-gray-700 hover:bg-gray-50"
-        >
-          {isHidden ? 'Un-hide' : 'Hide'}
-        </button>
-        <button
-          onClick={() => { onDelete(row.idx); onClose(); }}
-          className="text-xs px-3 py-1.5 border border-red-100 rounded text-red-500 hover:bg-red-50"
-        >
-          Delete
-        </button>
+
+        {can('hide') && (
+          <button
+            onClick={() => onHide(row.idx)}
+            className="text-xs px-3 py-1.5 border border-gray-200 rounded text-gray-700 hover:bg-gray-50"
+          >
+            {isHidden ? 'Un-hide' : 'Hide'}
+          </button>
+        )}
+        {can('delete') && (
+          <button
+            onClick={() => { onDelete(row.idx); onClose(); }}
+            className="text-xs px-3 py-1.5 border border-red-100 rounded text-red-500 hover:bg-red-50"
+          >
+            Delete
+          </button>
+        )}
       </div>
     </div>
   );
@@ -156,17 +203,16 @@ function SubmissionPanel({ row }: { row: EddRow }) {
     <>
       <SectionTitle>Submission details</SectionTitle>
       <div className="grid grid-cols-2 gap-x-4">
-        <Field label="User ID"        value={row.uid} />
-        <Field label="Submitted"      value={row.submittedAt?.slice(0, 10)} />
+        <Field label="User ID"         value={row.uid} />
+        <Field label="Submitted"       value={row.submittedAt?.slice(0, 10)} />
         <Field label="Primary funding" value={row.funding} />
-        <Field label="Employer"       value={row.employer} />
-        <Field label="Job title"      value={row.jobTitle} />
-        <Field label="Monthly income" value={row.monthlyIncome} />
-        <Field label="Country"        value={row.country} />
-        <Field label="Notes"          value={row.notes} />
+        <Field label="Employer"        value={row.employer} />
+        <Field label="Job title"       value={row.jobTitle} />
+        <Field label="Monthly income"  value={row.monthlyIncome} />
+        <Field label="Country"         value={row.country} />
+        <Field label="Notes"           value={row.notes} />
       </div>
 
-      {/* Documents */}
       {row.documents.length > 0 && (
         <>
           <hr className="border-gray-100 my-3" />
@@ -187,7 +233,6 @@ function SubmissionPanel({ row }: { row: EddRow }) {
         </>
       )}
 
-      {/* Extra fields */}
       {Object.keys(row.extra).length > 0 && (
         <>
           <hr className="border-gray-100 my-3" />

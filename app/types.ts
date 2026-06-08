@@ -14,12 +14,11 @@ export interface SheetData {
   rows: string[][];
 }
 
-// A parsed, enriched row used throughout the UI
 export interface EddRow {
   idx: number;
   uid: string;
   submittedAt: string;
-  submittedDate: Date | null;   // parsed Date for staleness calc
+  submittedDate: Date | null;
   funding: string;
   employer: string;
   jobTitle: string;
@@ -31,14 +30,13 @@ export interface EddRow {
   assignedTo: string;
   extra: Record<string, string>;
   daysSinceSubmission: number | null;
-  isStale: boolean;             // true if unreviewed for > 3 days
+  isStale: boolean;
 }
 
 // ── Status ────────────────────────────────────────────────────────────────────
 
 export type CaseStatus = 'Pending' | 'Form Sent' | 'Under Review' | 'Done';
 export const STATUS_OPTIONS: CaseStatus[] = ['Pending', 'Form Sent', 'Under Review', 'Done'];
-
 
 export interface ActionResult {
   ok: boolean;
@@ -51,6 +49,7 @@ export interface AssignResult {
   assigned: number;
   username: string;
 }
+
 // ── UserTool profile ──────────────────────────────────────────────────────────
 
 export type UserProfile = Record<string, unknown>;
@@ -64,5 +63,55 @@ export interface AppUser {
   displayName: string;
   role: UserRole;
   avatar: string;
-  markets: Market[];  // which markets this user can access
+  markets: Market[];
 }
+
+// ── Permissions ───────────────────────────────────────────────────────────────
+
+export type TabId =
+  | 'edd_submissions'
+  | 'alerts'
+  | 'phone_requests'
+  | 'high_risk'
+  | 'aml_alerts';
+
+export type ActionId =
+  | 'self_assign'
+  | 'accept_edd'
+  | 'reject_edd'
+  | 'send_form'
+  | 'send_details_to_cx'
+  | 'mark_done'
+  | 'hide'
+  | 'delete'
+  | 'change_status';
+
+export interface UserPermissions {
+  tabs: TabId[];
+  actions: ActionId[];
+}
+
+export const ALL_TABS: { id: TabId; label: string }[] = [
+  { id: 'edd_submissions', label: 'EDD Submissions' },
+  { id: 'alerts',          label: 'Alerts' },
+  { id: 'phone_requests',  label: 'Phone Number Requests' },
+  { id: 'high_risk',       label: 'High Risk Users' },
+  { id: 'aml_alerts',      label: 'AML Alerts' },
+];
+
+export const ALL_ACTIONS: { id: ActionId; label: string }[] = [
+  { id: 'self_assign',        label: 'Self Assign' },
+  { id: 'accept_edd',         label: 'Accept EDD' },
+  { id: 'reject_edd',         label: 'Reject EDD' },
+  { id: 'send_form',          label: 'Send Form' },
+  { id: 'send_details_to_cx', label: 'Send Details to CX' },
+  { id: 'mark_done',          label: 'Mark Done' },
+  { id: 'hide',               label: 'Hide' },
+  { id: 'delete',             label: 'Delete' },
+  { id: 'change_status',      label: 'Change Status' },
+];
+
+export const DEFAULT_PERMISSIONS: UserPermissions = {
+  tabs:    ['edd_submissions', 'alerts', 'phone_requests', 'high_risk', 'aml_alerts'],
+  actions: ['self_assign', 'accept_edd', 'reject_edd', 'send_form', 'send_details_to_cx', 'mark_done', 'hide', 'delete', 'change_status'],
+};
