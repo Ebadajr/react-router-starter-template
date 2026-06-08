@@ -66,6 +66,37 @@ export interface AppUser {
   markets: Market[];
 }
 
+// ── Alert rows (EDD Daily Deposits sheet) ────────────────────────────────────
+
+export type AlertType = 'edd_deposits';
+
+export type AlertResponseValue = 'edd_requested' | 'clear' | '';
+
+export interface AlertRow {
+  idx: number;
+  userId: string;
+  currency: string;
+  updatedAt: string;
+  amount: string;
+  alertId: string;
+  response: AlertResponseValue;   // Response column: edd_requested | clear | ''
+  notes: string;
+  isMinor: string;
+  arabicName: string;
+  englishName: string;
+  address: string;
+  companyName: string;
+  phoneNumber: string;
+  nationality: string;
+  idType: string;
+  idNumber: string;
+  idExpiry: string;
+  country: string;
+  done: string;
+  actionTaken: string;            // action_taken column — "{action} — {username}"
+  assignedTo: string;             // assigned to column
+}
+
 // ── Permissions ───────────────────────────────────────────────────────────────
 
 export type TabId =

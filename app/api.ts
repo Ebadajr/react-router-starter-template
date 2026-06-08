@@ -1,4 +1,4 @@
-import type { SheetData, ActionResult, AssignResult, UserProfile, Market } from './types';
+import type { SheetData, ActionResult, AssignResult, UserProfile, Market, AlertType } from './types';
 
 const BASE = '';
 
@@ -51,6 +51,31 @@ export async function clearAssignment(rowIndex: number, market: Market): Promise
 
 export async function fetchUserProfile(uid: string): Promise<UserProfile> {
   return _get<UserProfile>(`/api/usertool?uid=${encodeURIComponent(uid)}`);
+}
+
+// ── Alerts API ────────────────────────────────────────────────────────────────
+
+export async function loadAlerts(type: AlertType): Promise<SheetData> {
+  return _get<SheetData>(`/api/alerts?type=${type}`);
+}
+
+// action = edd_requested | clear | any other string
+// Also writes to the Response column when action is a decision
+export async function writeAlertAction(
+  rowIndex: number,
+  action: string,
+  username: string,
+  type: AlertType,
+): Promise<ActionResult> {
+  return _post<ActionResult>('/api/alert-action', { rowIndex, action, username, type });
+}
+
+export async function assignAlertRows(
+  rowIndices: number[],
+  username: string,
+  type: AlertType,
+): Promise<AssignResult> {
+  return _post<AssignResult>('/api/alert-assign', { rowIndices, username, type });
 }
 
 export type { SheetData, ActionResult, AssignResult };

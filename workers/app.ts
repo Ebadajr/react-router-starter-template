@@ -10,7 +10,25 @@ export interface Env {
 
 const MARKET_WORKSHEETS: Record<string, string> = {
   EG:  'Responsi',
-  UAE: 'EDD UAE',
+  UAE: 'EDD_UAE_Response',
+};
+
+// UAE uses a different spreadsheet from EG.
+// null means fall back to env.GOOGLE_SHEET_ID (EG default).
+const UAE_SHEET_ID = '1Rii_zv90tF1Prso2e10Hy2APiWUEIt-Ehg6csKl8N8g';
+const MARKET_SHEET_IDS: Record<string, string | null> = {
+  EG:  null,
+  UAE: UAE_SHEET_ID,
+};
+
+function sheetIdForMarket(market: string, env: Env): string {
+  return MARKET_SHEET_IDS[market] ?? env.GOOGLE_SHEET_ID;
+}
+
+// ── Alerts sheets — tab on the UAE spreadsheet ────────────────────────────────
+const ALERTS_SHEET_ID = UAE_SHEET_ID;
+const ALERT_WORKSHEETS: Record<string, string> = {
+  edd_deposits: 'EDD-UAE-ALERTS',
 };
 
 const SHEETS_SCOPES = [
@@ -72,6 +90,15 @@ export default {
     if (url.pathname === '/api/usertool' && request.method === 'GET') {
       return withCors(await handleUserTool(url, env));
     }
+    if (url.pathname === '/api/alerts' && request.method === 'GET') {
+      return withCors(await handleAlertsLoad(url, env));
+    }
+    if (url.pathname === '/api/alert-action' && request.method === 'POST') {
+      return withCors(await handleAlertAction(request, env));
+    }
+    if (url.pathname === '/api/alert-assign' && request.method === 'POST') {
+      return withCors(await handleAlertAssign(request, env));
+    }
 
     try {
       const { default: handler } = await import('./index.js' as any);
@@ -96,12 +123,14 @@ function resolveWorksheet(url: URL, env: Env, bodyMarket?: string): string {
 
 async function handleSheetsLoad(url: URL, env: Env): Promise<Response> {
   try {
+    const market = url.searchParams.get('market') ?? 'EG';
     const token = await getGoogleToken(env.GOOGLE_SERVICE_ACCOUNT_JSON, SHEETS_SCOPES);
     const tabName = resolveWorksheet(url, env);
+    const sheetId = sheetIdForMarket(market, env);
     const range = encodeURIComponent(`${tabName}!A:ZZ`);
 
     const resp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${env.GOOGLE_SHEET_ID}/values/${range}`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
 
@@ -132,13 +161,14 @@ async function handleWriteAction(request: Request, env: Env): Promise<Response> 
 
     const token = await getGoogleToken(env.GOOGLE_SERVICE_ACCOUNT_JSON, SHEETS_SCOPES);
     const tabName = MARKET_WORKSHEETS[market ?? 'EG'] ?? env.GOOGLE_WORKSHEET_NAME ?? 'Response';
+    const sheetId = sheetIdForMarket(market ?? 'EG', env);
 
-    const colIdx = await findColumnIndex(token, env.GOOGLE_SHEET_ID, tabName, 'action_taken');
+    const colIdx = await findColumnIndex(token, sheetId, tabName, 'action_taken');
     if (colIdx === null) return jsonError("Column 'action_taken' not found in sheet", 404);
 
     const range = encodeURIComponent(`${tabName}!${toColLetter(colIdx)}${rowIndex + 2}`);
     const resp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${env.GOOGLE_SHEET_ID}/values/${range}?valueInputOption=RAW`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?valueInputOption=RAW`,
       {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -163,13 +193,14 @@ async function handleWriteResponse(request: Request, env: Env): Promise<Response
 
     const token = await getGoogleToken(env.GOOGLE_SERVICE_ACCOUNT_JSON, SHEETS_SCOPES);
     const tabName = MARKET_WORKSHEETS[market ?? 'EG'] ?? env.GOOGLE_WORKSHEET_NAME ?? 'Response';
+    const sheetId = sheetIdForMarket(market ?? 'EG', env);
 
-    const colIdx = await findColumnIndex(token, env.GOOGLE_SHEET_ID, tabName, 'response');
+    const colIdx = await findColumnIndex(token, sheetId, tabName, 'response');
     if (colIdx === null) return jsonError("Column 'response' not found in sheet", 404);
 
     const range = encodeURIComponent(`${tabName}!${toColLetter(colIdx)}${rowIndex + 2}`);
     const resp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${env.GOOGLE_SHEET_ID}/values/${range}?valueInputOption=RAW`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?valueInputOption=RAW`,
       {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -196,8 +227,9 @@ async function handleAssign(request: Request, env: Env): Promise<Response> {
 
     const token = await getGoogleToken(env.GOOGLE_SERVICE_ACCOUNT_JSON, SHEETS_SCOPES);
     const tabName = MARKET_WORKSHEETS[market ?? 'EG'] ?? env.GOOGLE_WORKSHEET_NAME ?? 'Response';
+    const sheetId = sheetIdForMarket(market ?? 'EG', env);
 
-    const colIdx = await findColumnIndex(token, env.GOOGLE_SHEET_ID, tabName, 'assigned to');
+    const colIdx = await findColumnIndex(token, sheetId, tabName, 'assigned to');
     if (colIdx === null) return jsonError("Column 'Assigned To' not found in sheet", 404);
 
     const colLetter = toColLetter(colIdx);
@@ -207,7 +239,7 @@ async function handleAssign(request: Request, env: Env): Promise<Response> {
     }));
 
     const resp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${env.GOOGLE_SHEET_ID}/values:batchUpdate`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchUpdate`,
       {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -246,7 +278,149 @@ async function handleUserTool(url: URL, env: Env): Promise<Response> {
   }
 }
 
+// ── GET /api/alerts?type=edd_deposits ─────────────────────────────────────────
+
+async function handleAlertsLoad(url: URL, env: Env): Promise<Response> {
+  try {
+    const type = url.searchParams.get('type') ?? 'edd_deposits';
+    const tabName = ALERT_WORKSHEETS[type];
+    if (!tabName) return jsonError(`Unknown alert type: ${type}`, 400);
+
+    const token = await getGoogleToken(env.GOOGLE_SERVICE_ACCOUNT_JSON, SHEETS_SCOPES);
+    const range = encodeURIComponent(`${tabName}!A:ZZ`);
+
+    const resp = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${ALERTS_SHEET_ID}/values/${range}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+
+    if (!resp.ok) return jsonError(`Sheets API error (${resp.status}): ${await resp.text()}`, resp.status);
+
+    const { values = [] } = await resp.json() as { values?: string[][] };
+    if (values.length === 0) return jsonOk({ headers: [], rows: [] });
+
+    const headers = dedupeHeaders(values[0]);
+    const n = headers.length;
+    const rows = values.slice(1).map(r =>
+      r.length >= n ? r.slice(0, n) : [...r, ...Array(n - r.length).fill('')],
+    );
+
+    return jsonOk({ headers, rows });
+  } catch (err) {
+    return jsonError((err as Error).message, 500);
+  }
+}
+
+// ── POST /api/alert-action ────────────────────────────────────────────────────
+// Writes "{action} — {username}" to action_taken column.
+// For edd_requested / clear, also writes the action to the Response column.
+
+async function handleAlertAction(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = await request.json() as {
+      rowIndex?: number; action?: string; username?: string; type?: string;
+    };
+    const { rowIndex, action, username, type = 'edd_deposits' } = body;
+    if (rowIndex == null || !action || !username) {
+      return jsonError('rowIndex, action, and username are required', 400);
+    }
+
+    const tabName = ALERT_WORKSHEETS[type];
+    if (!tabName) return jsonError(`Unknown alert type: ${type}`, 400);
+
+    const token = await getGoogleToken(env.GOOGLE_SERVICE_ACCOUNT_JSON, SHEETS_SCOPES);
+    const cellRow = rowIndex + 2;
+    const updates: { range: string; values: string[][] }[] = [];
+
+    // Always write to action_taken if the column exists
+    const actionColIdx = await findColumnIndexInSheet(token, ALERTS_SHEET_ID, tabName, 'action_taken');
+    if (actionColIdx !== null) {
+      updates.push({
+        range: `${tabName}!${toColLetter(actionColIdx)}${cellRow}`,
+        values: [[`${action} — ${username}`]],
+      });
+    }
+
+    // For the two main decisions, also update the Response column
+    if (action === 'edd_requested' || action === 'clear') {
+      const responseColIdx = await findColumnIndexInSheet(token, ALERTS_SHEET_ID, tabName, 'response');
+      if (responseColIdx !== null) {
+        updates.push({
+          range: `${tabName}!${toColLetter(responseColIdx)}${cellRow}`,
+          values: [[action]],
+        });
+      }
+    }
+
+    if (updates.length === 0) {
+      return jsonError("Neither 'action_taken' nor 'Response' column found in sheet", 404);
+    }
+
+    const resp = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${ALERTS_SHEET_ID}/values:batchUpdate`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ valueInputOption: 'RAW', data: updates }),
+      },
+    );
+
+    if (!resp.ok) return jsonError(`Sheets write error (${resp.status}): ${await resp.text()}`, resp.status);
+    return jsonOk({ ok: true, rowIndex, action });
+  } catch (err) {
+    return jsonError((err as Error).message, 500);
+  }
+}
+
+// ── POST /api/alert-assign ────────────────────────────────────────────────────
+
+async function handleAlertAssign(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = await request.json() as {
+      rowIndices?: number[]; username?: string; type?: string;
+    };
+    const { rowIndices, username, type = 'edd_deposits' } = body;
+    if (!Array.isArray(rowIndices) || username == null) {
+      return jsonError('rowIndices (array) and username are required', 400);
+    }
+
+    const tabName = ALERT_WORKSHEETS[type];
+    if (!tabName) return jsonError(`Unknown alert type: ${type}`, 400);
+
+    const token = await getGoogleToken(env.GOOGLE_SERVICE_ACCOUNT_JSON, SHEETS_SCOPES);
+    const colIdx = await findColumnIndexInSheet(token, ALERTS_SHEET_ID, tabName, 'assigned to');
+    if (colIdx === null) return jsonError("Column 'assigned to' not found in alerts sheet", 404);
+
+    const colLetter = toColLetter(colIdx);
+    const data = rowIndices.map(ridx => ({
+      range: `${tabName}!${colLetter}${ridx + 2}`,
+      values: [[username]],
+    }));
+
+    const resp = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${ALERTS_SHEET_ID}/values:batchUpdate`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ valueInputOption: 'RAW', data }),
+      },
+    );
+
+    if (!resp.ok) return jsonError(`Sheets batch write error (${resp.status}): ${await resp.text()}`, resp.status);
+    return jsonOk({ ok: true, assigned: rowIndices.length, username });
+  } catch (err) {
+    return jsonError((err as Error).message, 500);
+  }
+}
+
 // ── Utilities ─────────────────────────────────────────────────────────────────
+
+// Alias with a clearer name for the alerts sheet (different sheet ID)
+async function findColumnIndexInSheet(
+  token: string, sheetId: string, tabName: string, targetLower: string,
+): Promise<number | null> {
+  return findColumnIndex(token, sheetId, tabName, targetLower);
+}
 
 async function findColumnIndex(
   token: string, sheetId: string, tabName: string, targetLower: string,

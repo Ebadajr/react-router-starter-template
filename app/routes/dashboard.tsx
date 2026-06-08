@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { loadSession, saveMarket, loadMarket, loadUserPermissions } from '../auth';
-import { loadSheet, writeAction, writeResponse, assignRows } from '../api';
+import { loadSheet, writeAction, writeResponse, assignRows, loadAlerts, writeAlertAction, assignAlertRows } from '../api';
 import { parseSheetData, resolveStatus } from '../sheetParser';
-import type { EddRow, CaseStatus, Market, TabId, UserPermissions } from '../types';
+import { parseAlertData } from '../alertParser';
+import type { EddRow, CaseStatus, Market, TabId, UserPermissions, AlertRow, AlertType } from '../types';
 import { ALL_TABS } from '../types';
 import { TopBar } from '../components/TopBar';
 import { MetricsBar } from '../components/MetricsBar';
@@ -221,7 +222,9 @@ export default function DashboardPage() {
         </>
       )}
 
-      {activeTab === 'alerts' && <AlertsTab currentUser={user.username} />}
+      {activeTab === 'alerts' && (
+        <AlertsTab market={market} currentUser={user.username} permissions={permissions} />
+      )}
       {activeTab === 'phone_requests' && <PlaceholderTab title="Phone Number Requests" description="Track and review phone number change requests from users." />}
       {activeTab === 'high_risk' && <PlaceholderTab title="High Risk Users" description="Monitor users flagged for elevated risk based on activity patterns." />}
       {activeTab === 'aml_alerts' && <PlaceholderTab title="AML Alerts" description="Anti-Money Laundering alerts requiring compliance review." />}
@@ -229,116 +232,199 @@ export default function DashboardPage() {
   );
 }
 
-// ── Alerts Tab ────────────────────────────────────────────────────────────────
+// ── EDD Daily Deposits Alerts Tab ─────────────────────────────────────────────
 
-type AlertStatus = 'open' | 'in_progress' | 'resolved' | 'dismissed';
-type AlertSeverity = 'low' | 'medium' | 'high' | 'critical';
-
-interface Alert {
-  id: string;
-  title: string;
-  description: string;
-  uid: string;
-  createdAt: string;
-  severity: AlertSeverity;
-  status: AlertStatus;
-  assignedTo: string;
-  history: { action: string; user: string; at: string }[];
-}
-
-const SEVERITY_COLORS: Record<AlertSeverity, string> = {
-  low:      'bg-gray-50 text-gray-500 border-gray-200',
-  medium:   'bg-yellow-50 text-yellow-700 border-yellow-200',
-  high:     'bg-orange-50 text-orange-700 border-orange-200',
-  critical: 'bg-red-50 text-red-700 border-red-200',
+const RESPONSE_BADGE: Record<string, string> = {
+  edd_requested: 'bg-blue-50 text-blue-700 border border-blue-200',
+  clear:         'bg-green-50 text-green-700 border border-green-200',
+  '':            'bg-amber-50 text-amber-700 border border-amber-200',
 };
 
-const STATUS_COLORS: Record<AlertStatus, string> = {
-  open:        'bg-blue-50 text-blue-700',
-  in_progress: 'bg-amber-50 text-amber-700',
-  resolved:    'bg-green-50 text-green-700',
-  dismissed:   'bg-gray-50 text-gray-400',
+const RESPONSE_LABEL: Record<string, string> = {
+  edd_requested: 'EDD Requested',
+  clear:         'Cleared',
+  '':            'Pending',
 };
 
-function AlertsTab({ currentUser }: { currentUser: string }) {
-  const [alerts] = useState<Alert[]>([]);
-  const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
-  const [statusFilter, setStatusFilter] = useState<AlertStatus | ''>('');
+function AlertsTab({ market, currentUser, permissions }: {
+  market: Market;
+  currentUser: string;
+  permissions: UserPermissions;
+}) {
+  const [alerts, setAlerts]         = useState<AlertRow[]>([]);
+  const [loading, setLoading]       = useState(false);
+  const [loadError, setLoadError]   = useState<string | null>(null);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const [responseFilter, setResponseFilter] = useState<string>('');
+  const [uidSearch, setUidSearch]   = useState('');
+  const alertType: AlertType        = 'edd_deposits';
 
-  const visible = alerts.filter(a => !statusFilter || a.status === statusFilter);
+  const canSelfAssign = permissions.actions.includes('self_assign');
+
+  const fetchAlerts = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const data = await loadAlerts(alertType);
+      setAlerts(parseAlertData(data));
+    } catch (e) {
+      setLoadError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (market === 'UAE') fetchAlerts();
+  }, [market, fetchAlerts]);
+
+  // UAE only — EG has no alert feed yet
+  if (market !== 'UAE') {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8 bg-[#f7f7f5]">
+        <div className="w-12 h-12 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-xl shadow-sm">🔔</div>
+        <div>
+          <div className="text-base font-semibold text-gray-900 mb-1">No alerts for Egypt market</div>
+          <div className="text-sm text-gray-400 max-w-sm">Switch to UAE market to see EDD Daily Deposit alerts.</div>
+        </div>
+      </div>
+    );
+  }
+
+  const visible = alerts.filter(a => {
+    if (uidSearch && !a.userId.toLowerCase().includes(uidSearch.toLowerCase())) return false;
+    if (responseFilter && a.response !== responseFilter) return false;
+    return true;
+  });
+
+  const selected = selectedIdx !== null ? alerts.find(a => a.idx === selectedIdx) ?? null : null;
+
+  function handleSelfAssign(idx: number) {
+    setAlerts(prev => prev.map(a => a.idx === idx ? { ...a, assignedTo: currentUser } : a));
+    assignAlertRows([idx], currentUser, alertType).catch(console.error);
+  }
+
+  function handleAction(idx: number, action: string) {
+    // Optimistic update for response
+    if (action === 'edd_requested' || action === 'clear') {
+      setAlerts(prev => prev.map(a =>
+        a.idx === idx ? { ...a, response: action as any, actionTaken: `${action} — ${currentUser}` } : a
+      ));
+    } else {
+      setAlerts(prev => prev.map(a =>
+        a.idx === idx ? { ...a, actionTaken: `${action} — ${currentUser}` } : a
+      ));
+    }
+    writeAlertAction(idx, action, currentUser, alertType).catch(console.error);
+  }
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* Left: alert list */}
+      {/* Left: list */}
       <div className="w-[340px] flex-shrink-0 border-r border-gray-200 bg-white flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-          <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">
-            Alerts
-          </span>
-          <select
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value as AlertStatus | '')}
-            className="text-[11px] px-2 py-1 border border-gray-200 rounded bg-white text-gray-700 focus:outline-none"
-          >
-            <option value="">All</option>
-            <option value="open">Open</option>
-            <option value="in_progress">In Progress</option>
-            <option value="resolved">Resolved</option>
-            <option value="dismissed">Dismissed</option>
-          </select>
+        {/* Section header */}
+        <div className="px-4 py-2.5 border-b border-gray-100 flex-shrink-0 bg-gray-50">
+          <div className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">EDD Daily Deposits</div>
+          <div className="text-[10px] text-gray-400 mt-0.5">UAE · Auto-flagged daily</div>
         </div>
 
+        {/* Toolbar */}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 flex-shrink-0">
+          <input
+            type="text"
+            placeholder="Search user ID…"
+            value={uidSearch}
+            onChange={e => setUidSearch(e.target.value)}
+            className="flex-1 text-xs px-2.5 py-1.5 border border-gray-200 rounded bg-white text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400"
+          />
+          <select
+            value={responseFilter}
+            onChange={e => setResponseFilter(e.target.value)}
+            className="text-[11px] px-2 py-1.5 border border-gray-200 rounded bg-white text-gray-700 focus:outline-none"
+          >
+            <option value="">All</option>
+            <option value="">Pending</option>
+            <option value="edd_requested">EDD Requested</option>
+            <option value="clear">Cleared</option>
+          </select>
+          <button onClick={fetchAlerts} className="text-[11px] px-2 py-1.5 border border-gray-200 rounded bg-white text-gray-600 hover:bg-gray-50">
+            ↻
+          </button>
+        </div>
+
+        {loading && (
+          <div className="px-4 py-2 text-xs text-blue-500 flex-shrink-0 animate-pulse">Loading…</div>
+        )}
+        {loadError && (
+          <div className="px-4 py-2 text-xs text-red-500 flex-shrink-0">⚠ {loadError}</div>
+        )}
+
         <div className="flex-1 overflow-y-auto">
-          {visible.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400 px-6 text-center">
-              <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg">
-                🔔
-              </div>
-              <p className="text-xs font-medium text-gray-500">No alerts</p>
-              <p className="text-[11px] text-gray-400 leading-relaxed">
-                Alerts will appear here once connected to a data source.
-              </p>
+          {!loading && visible.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full gap-2 text-gray-400 px-4 text-center">
+              <div className="text-lg">🔔</div>
+              <p className="text-xs">No alerts match the current filter.</p>
             </div>
-          ) : (
-            visible.map(a => (
+          )}
+          {visible.map(a => {
+            const isMe = a.assignedTo?.trim().toLowerCase() === currentUser.toLowerCase();
+            const isSel = selectedIdx === a.idx;
+            return (
               <div
-                key={a.id}
-                onClick={() => setSelectedAlert(a)}
-                className={`px-4 py-3 border-b border-gray-50 cursor-pointer hover:bg-gray-50 ${selectedAlert?.id === a.id ? 'bg-gray-50 border-l-2 border-l-gray-800' : ''}`}
+                key={a.idx}
+                onClick={() => setSelectedIdx(a.idx)}
+                className={`px-3 py-2.5 border-b border-gray-50 cursor-pointer gap-2
+                  ${isSel ? 'bg-gray-50 border-l-2 border-l-gray-800 pl-2.5' : 'hover:bg-gray-50'}`}
               >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${SEVERITY_COLORS[a.severity]}`}>
-                    {a.severity}
-                  </span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${STATUS_COLORS[a.status]}`}>
-                    {a.status.replace('_', ' ')}
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[13px] font-medium text-gray-900">{a.userId}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${RESPONSE_BADGE[a.response]}`}>
+                    {RESPONSE_LABEL[a.response]}
                   </span>
                 </div>
-                <div className="text-[13px] font-medium text-gray-900 truncate">{a.title}</div>
-                <div className="text-[11px] text-gray-400 mt-0.5">UID: {a.uid} · {a.createdAt.slice(0, 10)}</div>
-                {a.assignedTo && (
-                  <div className="text-[10px] text-gray-400 mt-0.5">
-                    {a.assignedTo === currentUser ? (
-                      <span className="text-blue-600">Assigned to me</span>
-                    ) : (
-                      `→ ${a.assignedTo}`
-                    )}
+                <div className="text-[11px] text-gray-400">
+                  {a.amount} {a.currency} · {a.updatedAt?.slice(0, 10)}
+                </div>
+                {a.assignedTo?.trim() && (
+                  <div className="text-[10px] mt-0.5">
+                    {isMe
+                      ? <span className="text-blue-600">mine</span>
+                      : <span className="text-gray-400">→ {a.assignedTo}</span>
+                    }
                   </div>
                 )}
+                {canSelfAssign && !isMe && (
+                  <button
+                    onClick={e => { e.stopPropagation(); handleSelfAssign(a.idx); }}
+                    className="mt-1 text-[10px] px-2 py-0.5 border border-gray-200 rounded bg-white text-gray-500 hover:bg-gray-50"
+                  >
+                    + Assign to me
+                  </button>
+                )}
               </div>
-            ))
-          )}
+            );
+          })}
+        </div>
+
+        <div className="px-3 py-2 border-t border-gray-100 flex-shrink-0">
+          <span className="text-[11px] text-gray-400">{visible.length} of {alerts.length} alerts</span>
         </div>
       </div>
 
-      {/* Right: alert detail */}
+      {/* Right: detail */}
       <div className="flex-1 bg-white overflow-hidden flex flex-col">
-        {selectedAlert ? (
-          <AlertDetail alert={selectedAlert} currentUser={currentUser} />
+        {selected ? (
+          <AlertDetail
+            row={selected}
+            currentUser={currentUser}
+            permissions={permissions}
+            onAction={handleAction}
+            onSelfAssign={handleSelfAssign}
+          />
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400">
             <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg">🔔</div>
-            <p className="text-sm">Select an alert to view details</p>
+            <p className="text-sm">Select an alert to view details and take action</p>
           </div>
         )}
       </div>
@@ -346,82 +432,145 @@ function AlertsTab({ currentUser }: { currentUser: string }) {
   );
 }
 
-function AlertDetail({ alert, currentUser }: { alert: Alert; currentUser: string }) {
-  const isAssignedToMe = alert.assignedTo === currentUser;
+function AlertDetail({ row, currentUser, permissions, onAction, onSelfAssign }: {
+  row: AlertRow;
+  currentUser: string;
+  permissions: UserPermissions;
+  onAction: (idx: number, action: string) => void;
+  onSelfAssign: (idx: number) => void;
+}) {
+  const isMe = row.assignedTo?.trim().toLowerCase() === currentUser.toLowerCase();
+  const canAssign = permissions.actions.includes('self_assign');
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* Header */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 flex-shrink-0">
         <div>
-          <div className="text-base font-medium text-gray-900">{alert.title}</div>
+          <div className="text-base font-medium text-gray-900">{row.userId}</div>
           <div className="text-xs text-gray-400 mt-0.5">
-            Created {alert.createdAt.slice(0, 10)} · UID: {alert.uid}
+            {row.updatedAt?.slice(0, 10)} · {row.amount} {row.currency} · {row.country}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className={`text-[10px] px-2 py-1 rounded border font-medium ${SEVERITY_COLORS[alert.severity]}`}>
-            {alert.severity}
-          </span>
-          <span className={`text-[10px] px-2 py-1 rounded font-medium ${STATUS_COLORS[alert.status]}`}>
-            {alert.status.replace('_', ' ')}
-          </span>
-        </div>
+        <span className={`text-[11px] px-2.5 py-1 rounded font-medium ${RESPONSE_BADGE[row.response]}`}>
+          {RESPONSE_LABEL[row.response]}
+        </span>
       </div>
 
+      {/* Body */}
       <div className="flex-1 overflow-y-auto p-5">
-        <div className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Description</div>
-        <p className="text-xs text-gray-700 mb-6 leading-relaxed">{alert.description}</p>
+        {/* KYC info from sheet */}
+        <AlertSection title="Identity">
+          <AlertGrid>
+            <AlertField label="English Name"  value={row.englishName} />
+            <AlertField label="Arabic Name"   value={row.arabicName} />
+            <AlertField label="Nationality"   value={row.nationality} />
+            <AlertField label="Is Minor"      value={row.isMinor} />
+            <AlertField label="ID Type"       value={row.idType} />
+            <AlertField label="ID Number"     value={row.idNumber} />
+            <AlertField label="ID Expiry"     value={row.idExpiry} />
+            <AlertField label="Phone"         value={row.phoneNumber} />
+          </AlertGrid>
+        </AlertSection>
 
-        <div className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-3">Assignment</div>
-        <div className="flex items-center gap-3 mb-6">
-          {alert.assignedTo ? (
-            <span className="text-xs text-gray-700">
-              {isAssignedToMe ? 'Assigned to you' : `Assigned to ${alert.assignedTo}`}
-            </span>
-          ) : (
-            <span className="text-xs text-gray-400">Unassigned</span>
-          )}
-          {!isAssignedToMe && (
-            <button className="text-xs px-3 py-1.5 border border-gray-200 rounded text-gray-700 hover:bg-gray-50">
-              Assign to me
-            </button>
-          )}
-        </div>
+        <AlertSection title="Address & Employment">
+          <AlertGrid>
+            <AlertField label="Address"       value={row.address} />
+            <AlertField label="Company"       value={row.companyName} />
+            <AlertField label="Country"       value={row.country} />
+          </AlertGrid>
+        </AlertSection>
 
-        <div className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-3">History</div>
-        {alert.history.length === 0 ? (
-          <p className="text-xs text-gray-400">No actions taken yet.</p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {alert.history.map((h, i) => (
-              <div key={i} className="flex items-start gap-3 text-xs">
-                <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-medium text-gray-600 flex-shrink-0">
-                  {h.user.slice(0, 2).toUpperCase()}
-                </div>
-                <div>
-                  <span className="font-medium text-gray-800">{h.user}</span>
-                  <span className="text-gray-500"> {h.action}</span>
-                  <div className="text-[10px] text-gray-400 mt-0.5">{h.at}</div>
-                </div>
-              </div>
-            ))}
+        <AlertSection title="Deposit">
+          <AlertGrid>
+            <AlertField label="Amount"        value={row.amount} />
+            <AlertField label="Currency"      value={row.currency} />
+            <AlertField label="Date"          value={row.updatedAt?.slice(0, 10)} />
+            <AlertField label="Alert ID"      value={row.alertId} />
+          </AlertGrid>
+        </AlertSection>
+
+        {row.notes && (
+          <AlertSection title="Notes">
+            <p className="text-xs text-gray-700 leading-relaxed">{row.notes}</p>
+          </AlertSection>
+        )}
+
+        <AlertSection title="Assignment">
+          <div className="flex items-center gap-3">
+            {row.assignedTo?.trim() ? (
+              <span className="text-xs text-gray-700">
+                {isMe ? 'Assigned to you' : `Assigned to ${row.assignedTo}`}
+              </span>
+            ) : (
+              <span className="text-xs text-gray-400">Unassigned</span>
+            )}
+            {canAssign && !isMe && (
+              <button
+                onClick={() => onSelfAssign(row.idx)}
+                className="text-xs px-3 py-1.5 border border-gray-200 rounded text-gray-700 hover:bg-gray-50"
+              >
+                Assign to me
+              </button>
+            )}
           </div>
+        </AlertSection>
+
+        {row.actionTaken && (
+          <AlertSection title="Last Action">
+            <p className="text-xs text-gray-600">{row.actionTaken}</p>
+          </AlertSection>
         )}
       </div>
 
-      <div className="flex items-center gap-2 px-5 py-3 border-t border-gray-100 flex-shrink-0 flex-wrap">
-        {!isAssignedToMe && (
-          <button className="text-xs px-3 py-1.5 bg-gray-900 text-white rounded hover:bg-gray-700">
-            Assign to me
+      {/* Action footer */}
+      <div className="flex items-center gap-2 px-5 py-3 border-t border-gray-100 flex-shrink-0 bg-white flex-wrap">
+        <button
+          onClick={() => onAction(row.idx, 'edd_requested')}
+          disabled={row.response === 'edd_requested'}
+          className="text-xs px-4 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Request EDD
+        </button>
+        <button
+          onClick={() => onAction(row.idx, 'clear')}
+          disabled={row.response === 'clear'}
+          className="text-xs px-4 py-1.5 border border-green-200 rounded text-green-700 bg-green-50 hover:bg-green-100 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Clear
+        </button>
+        {row.done !== 'TRUE' && row.done !== 'true' && row.done !== '1' && (
+          <button
+            onClick={() => onAction(row.idx, 'mark_done')}
+            className="text-xs px-3 py-1.5 border border-gray-200 rounded text-gray-700 hover:bg-gray-50"
+          >
+            Mark done
           </button>
         )}
-        <button className="text-xs px-3 py-1.5 border border-green-200 rounded text-green-700 bg-green-50 hover:bg-green-100">
-          Mark resolved
-        </button>
-        <button className="text-xs px-3 py-1.5 border border-gray-200 rounded text-gray-700 hover:bg-gray-50">
-          Dismiss
-        </button>
       </div>
+    </div>
+  );
+}
+
+function AlertSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-5">
+      <div className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function AlertGrid({ children }: { children: React.ReactNode }) {
+  return <div className="grid grid-cols-2 gap-x-6 gap-y-2">{children}</div>;
+}
+
+function AlertField({ label, value }: { label: string; value: string }) {
+  if (!value) return null;
+  return (
+    <div>
+      <div className="text-[10px] text-gray-400">{label}</div>
+      <div className="text-xs font-medium text-gray-800 break-words">{value}</div>
     </div>
   );
 }
