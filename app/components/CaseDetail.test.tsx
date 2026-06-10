@@ -24,6 +24,10 @@ function makeRow(overrides: Partial<EddRow> = {}): EddRow {
     extra: {},
     daysSinceSubmission: 1,
     isStale: false,
+    arabicName: '', isMinor: '', occupationAr: '', addressAr: '',
+    portfolioValue: '', purchasePower: '', blockedCash: '', bookBalance: '',
+    savingsWallet: '', currentMonthDepositsCount: '', currentMonthDepositsValue: '',
+    prevMonthDepositsCount: '', prevMonthDepositsValue: '',
     ...overrides,
   };
 }
@@ -60,6 +64,7 @@ function renderDetail(row: EddRow | null, permOverrides: Partial<UserPermissions
       statusOverrides={{}}
       hiddenRows={new Set()}
       permissions={perms}
+      market="EG"
       {...handlers}
     />
   );
@@ -237,6 +242,7 @@ describe('CaseDetail status display', () => {
         statusOverrides={{ 0: 'Under Review' }}
         hiddenRows={new Set()}
         permissions={perms}
+        market="EG"
         onStatusChange={vi.fn()}
         onSendForm={vi.fn()}
         onAcceptEdd={vi.fn()}
@@ -260,6 +266,7 @@ describe('CaseDetail status display', () => {
         statusOverrides={{}}
         hiddenRows={new Set([0])}
         permissions={DEFAULT_PERMISSIONS}
+        market="EG"
         onStatusChange={vi.fn()}
         onSendForm={vi.fn()}
         onAcceptEdd={vi.fn()}

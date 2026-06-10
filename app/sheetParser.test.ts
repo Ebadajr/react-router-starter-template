@@ -175,6 +175,10 @@ describe('resolveStatus', () => {
       funding: '', employer: '', jobTitle: '', monthlyIncome: '',
       country: '', notes: '', documents: [], rawAction,
       assignedTo: '', extra: {}, daysSinceSubmission: null, isStale: false,
+      arabicName: '', isMinor: '', occupationAr: '', addressAr: '',
+      portfolioValue: '', purchasePower: '', blockedCash: '', bookBalance: '',
+      savingsWallet: '', currentMonthDepositsCount: '', currentMonthDepositsValue: '',
+      prevMonthDepositsCount: '', prevMonthDepositsValue: '',
     };
   }
 

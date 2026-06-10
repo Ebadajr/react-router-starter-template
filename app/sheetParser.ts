@@ -41,6 +41,21 @@ export function parseSheetData(data: SheetData): EddRow[] {
   const iAction   = exactCol(headers, 'action_taken');
   const iAssigned = exactCol(headers, 'assigned to');
 
+  // Sheet-sourced account info columns (EG market)
+  const iArabicName         = exactCol(headers, 'Arabic Name');
+  const iIsMinor            = exactCol(headers, 'Is Minor');
+  const iOccupationAr       = exactCol(headers, 'Occupation in Arabic');
+  const iAddressAr          = exactCol(headers, 'Address in Arabic');
+  const iPortfolioValue     = exactCol(headers, 'Portfolio Value');
+  const iPurchasePower      = exactCol(headers, 'Purchase Power');
+  const iBlockedCash        = exactCol(headers, 'Blocked Cash');
+  const iBookBalance        = exactCol(headers, 'Book Balance');
+  const iSavingsWallet      = exactCol(headers, 'Savings Wallet');
+  const iCurrDepCount       = exactCol(headers, 'Current Month Number of Deposits');
+  const iCurrDepValue       = exactCol(headers, 'Current Month Value of Deposits');
+  const iPrevDepCount       = exactCol(headers, 'Previous Month Number of Deposits');
+  const iPrevDepValue       = exactCol(headers, 'Previous Month Value of Deposits');
+
   const docIndices = headers
     .map((h, i) => (h.toLowerCase().startsWith('upload') ? i : -1))
     .filter(i => i !== -1);
@@ -48,6 +63,9 @@ export function parseSheetData(data: SheetData): EddRow[] {
   const knownIndices = new Set([
     iDate, iUid, iFunding, iEmployer, iJobTitle,
     iIncome, iCountry, iNotes, iAction, iAssigned,
+    iArabicName, iIsMinor, iOccupationAr, iAddressAr,
+    iPortfolioValue, iPurchasePower, iBlockedCash, iBookBalance, iSavingsWallet,
+    iCurrDepCount, iCurrDepValue, iPrevDepCount, iPrevDepValue,
     ...docIndices,
   ].filter(i => i !== -1));
 
@@ -91,6 +109,19 @@ export function parseSheetData(data: SheetData): EddRow[] {
       extra,
       daysSinceSubmission: days,
       isStale,
+      arabicName:                get(iArabicName),
+      isMinor:                   get(iIsMinor),
+      occupationAr:              get(iOccupationAr),
+      addressAr:                 get(iAddressAr),
+      portfolioValue:            get(iPortfolioValue),
+      purchasePower:             get(iPurchasePower),
+      blockedCash:               get(iBlockedCash),
+      bookBalance:               get(iBookBalance),
+      savingsWallet:             get(iSavingsWallet),
+      currentMonthDepositsCount: get(iCurrDepCount),
+      currentMonthDepositsValue: get(iCurrDepValue),
+      prevMonthDepositsCount:    get(iPrevDepCount),
+      prevMonthDepositsValue:    get(iPrevDepValue),
     } satisfies EddRow;
   });
 }

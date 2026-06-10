@@ -31,6 +31,20 @@ export interface EddRow {
   extra: Record<string, string>;
   daysSinceSubmission: number | null;
   isStale: boolean;
+  // Sheet-sourced account info (EG market)
+  arabicName: string;
+  isMinor: string;
+  occupationAr: string;
+  addressAr: string;
+  portfolioValue: string;
+  purchasePower: string;
+  blockedCash: string;
+  bookBalance: string;
+  savingsWallet: string;
+  currentMonthDepositsCount: string;
+  currentMonthDepositsValue: string;
+  prevMonthDepositsCount: string;
+  prevMonthDepositsValue: string;
 }
 
 // ── Status ────────────────────────────────────────────────────────────────────

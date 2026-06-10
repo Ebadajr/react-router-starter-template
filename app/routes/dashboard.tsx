@@ -208,6 +208,7 @@ export default function DashboardPage() {
                 statusOverrides={statusOverrides}
                 hiddenRows={hiddenRows}
                 permissions={permissions}
+                market={market}
                 onStatusChange={handleStatusChange}
                 onSendForm={handleSendForm}
                 onAcceptEdd={handleAcceptEdd}

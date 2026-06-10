@@ -1,4 +1,4 @@
-import type { EddRow, CaseStatus, UserPermissions } from '../types';
+import type { EddRow, CaseStatus, UserPermissions, Market } from '../types';
 import { STATUS_OPTIONS } from '../types';
 import { resolveStatus } from '../sheetParser';
 import { Badge } from './Badge';
@@ -9,6 +9,7 @@ interface CaseDetailProps {
   statusOverrides: Record<number, CaseStatus>;
   hiddenRows: Set<number>;
   permissions: UserPermissions;
+  market: Market;
   onStatusChange: (idx: number, status: CaseStatus) => void;
   onSendForm: (idx: number) => void;
   onAcceptEdd: (idx: number) => void;
@@ -20,7 +21,7 @@ interface CaseDetailProps {
 }
 
 export function CaseDetail({
-  row, statusOverrides, hiddenRows, permissions,
+  row, statusOverrides, hiddenRows, permissions, market,
   onStatusChange, onSendForm, onAcceptEdd, onRejectEdd,
   onSendDetailsToCx, onHide, onDelete, onClose,
 }: CaseDetailProps) {
@@ -69,7 +70,7 @@ export function CaseDetail({
       {/* Panel labels */}
       <div className="flex flex-shrink-0 border-b border-gray-100">
         <PanelLabel icon="📄" text="Submission info" />
-        <PanelLabel icon="🔍" text="UserTool info" bordered />
+        <PanelLabel icon="📊" text={market === 'EG' ? 'Account info' : 'UserTool info'} bordered />
       </div>
 
       {/* Side-by-side panels */}
@@ -78,7 +79,7 @@ export function CaseDetail({
           <SubmissionPanel row={row} />
         </div>
         <div className="flex-1 overflow-y-auto bg-gray-50">
-          <UserToolPanel uid={row.uid} />
+          {market === 'EG' ? <SheetInfoPanel row={row} /> : <UserToolPanel uid={row.uid} />}
         </div>
       </div>
 
@@ -194,6 +195,58 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
     <div className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2.5 mt-4 first:mt-0">
       {children}
+    </div>
+  );
+}
+
+function SheetInfoPanel({ row }: { row: EddRow }) {
+  const hasDeposits =
+    row.currentMonthDepositsCount || row.currentMonthDepositsValue ||
+    row.prevMonthDepositsCount    || row.prevMonthDepositsValue;
+  const hasBalances =
+    row.portfolioValue || row.purchasePower || row.blockedCash ||
+    row.bookBalance    || row.savingsWallet;
+
+  return (
+    <div className="p-4">
+      <SectionTitle>Identity</SectionTitle>
+      <div className="grid grid-cols-2 gap-x-4">
+        <Field label="Arabic Name"         value={row.arabicName} />
+        <Field label="Is Minor"            value={row.isMinor} />
+        <Field label="Occupation (Arabic)" value={row.occupationAr} />
+        <Field label="Address (Arabic)"    value={row.addressAr} />
+      </div>
+
+      {hasBalances && (
+        <>
+          <hr className="border-gray-100 my-3" />
+          <SectionTitle>Balances</SectionTitle>
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="Portfolio Value" value={row.portfolioValue} />
+            <Field label="Purchase Power"  value={row.purchasePower} />
+            <Field label="Blocked Cash"    value={row.blockedCash} />
+            <Field label="Book Balance"    value={row.bookBalance} />
+            <Field label="Savings Wallet"  value={row.savingsWallet} />
+          </div>
+        </>
+      )}
+
+      {hasDeposits && (
+        <>
+          <hr className="border-gray-100 my-3" />
+          <SectionTitle>Deposits</SectionTitle>
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="This Month (Count)" value={row.currentMonthDepositsCount} />
+            <Field label="This Month (Value)" value={row.currentMonthDepositsValue} />
+            <Field label="Last Month (Count)" value={row.prevMonthDepositsCount} />
+            <Field label="Last Month (Value)" value={row.prevMonthDepositsValue} />
+          </div>
+        </>
+      )}
+
+      {!row.arabicName && !hasBalances && !hasDeposits && (
+        <p className="text-xs text-gray-400 mt-2">No account data available for this case.</p>
+      )}
     </div>
   );
 }
