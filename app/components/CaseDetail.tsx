@@ -6,6 +6,7 @@ import { UserToolPanel } from './UserToolPanel';
 
 interface CaseDetailProps {
   row: EddRow | null;
+  allSubmissions: EddRow[];
   statusOverrides: Record<number, CaseStatus>;
   hiddenRows: Set<number>;
   permissions: UserPermissions;
@@ -21,7 +22,7 @@ interface CaseDetailProps {
 }
 
 export function CaseDetail({
-  row, statusOverrides, hiddenRows, permissions, market,
+  row, allSubmissions, statusOverrides, hiddenRows, permissions, market,
   onStatusChange, onSendForm, onAcceptEdd, onRejectEdd,
   onSendDetailsToCx, onHide, onDelete, onClose,
 }: CaseDetailProps) {
@@ -76,7 +77,7 @@ export function CaseDetail({
       {/* Side-by-side panels */}
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-y-auto border-r border-gray-100 p-4">
-          <SubmissionPanel row={row} />
+          <SubmissionPanel row={row} allSubmissions={allSubmissions} />
         </div>
         <div className="flex-1 overflow-y-auto bg-gray-50">
           {market === 'EG' ? <SheetInfoPanel row={row} /> : <UserToolPanel uid={row.uid} />}
@@ -251,7 +252,10 @@ function SheetInfoPanel({ row }: { row: EddRow }) {
   );
 }
 
-function SubmissionPanel({ row }: { row: EddRow }) {
+function SubmissionPanel({ row, allSubmissions }: { row: EddRow; allSubmissions: EddRow[] }) {
+  const others = allSubmissions
+    .filter(r => r.idx !== row.idx)
+    .sort((a, b) => b.idx - a.idx); // newest first
   return (
     <>
       <SectionTitle>Submission details</SectionTitle>
@@ -301,6 +305,43 @@ function SubmissionPanel({ row }: { row: EddRow }) {
           </details>
         </>
       )}
+
+      {others.length > 0 && (
+        <>
+          <hr className="border-gray-100 my-3" />
+          <details>
+            <summary className="text-[11px] text-gray-500 cursor-pointer hover:text-gray-700 select-none">
+              Previous submissions ({others.length})
+            </summary>
+            <div className="mt-2 flex flex-col gap-1.5">
+              {others.map(r => (
+                <PastSubmission key={r.idx} row={r} />
+              ))}
+            </div>
+          </details>
+        </>
+      )}
     </>
+  );
+}
+
+function PastSubmission({ row }: { row: EddRow }) {
+  const RESP_LABEL: Record<string, string> = {
+    edd_requested: 'Requested',
+    edd_accepted:  'Accepted',
+    edd_rejected:  'Rejected',
+    dup:           'DUP',
+    '':            'Pending',
+  };
+  const status = RESP_LABEL[row.eddResponse] ?? 'Pending';
+  return (
+    <div className="rounded border border-gray-100 bg-white px-3 py-2 text-[11px] text-gray-700">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-gray-400">{row.submittedAt?.slice(0, 10) || '—'}</span>
+        <Badge status={status} />
+      </div>
+      {row.funding && <div className="text-gray-500 truncate">{row.funding}</div>}
+      {row.notes   && <div className="text-gray-400 truncate mt-0.5">{row.notes}</div>}
+    </div>
   );
 }

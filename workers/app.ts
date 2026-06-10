@@ -6,10 +6,10 @@ export interface Env {
   GOOGLE_SHEET_ID: string;
   GOOGLE_WORKSHEET_NAME: string;
   USERTOOL_ADMIN_TOKEN: string;
+  DATA_START_ROW?: string; // if set, headers from row 1 + data from this row onwards
 }
 
 const MARKET_WORKSHEETS: Record<string, string> = {
-  EG:  'Responsi',
   UAE: 'EDD_UAE_Response',
 };
 
@@ -23,6 +23,14 @@ const MARKET_SHEET_IDS: Record<string, string | null> = {
 
 function sheetIdForMarket(market: string, env: Env): string {
   return MARKET_SHEET_IDS[market] ?? env.GOOGLE_SHEET_ID;
+}
+
+// Row offset: idx 0 maps to this sheet row number.
+// Normal sheets: header=row1, data starts at row2 → offset=2
+// With DATA_START_ROW: data starts at that row → offset=DATA_START_ROW
+function dataRowOffset(env: Env): number {
+  const n = env.DATA_START_ROW ? parseInt(env.DATA_START_ROW, 10) : 2;
+  return isNaN(n) ? 2 : n;
 }
 
 // ── Alerts sheets — tab on the UAE spreadsheet ────────────────────────────────
@@ -127,21 +135,42 @@ async function handleSheetsLoad(url: URL, env: Env): Promise<Response> {
     const token = await getGoogleToken(env.GOOGLE_SERVICE_ACCOUNT_JSON, SHEETS_SCOPES);
     const tabName = resolveWorksheet(url, env);
     const sheetId = sheetIdForMarket(market, env);
-    const range = encodeURIComponent(`${tabName}!A:ZZ`);
 
-    const resp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
+    const dataStartRow = env.DATA_START_ROW ? parseInt(env.DATA_START_ROW, 10) : null;
 
-    if (!resp.ok) return jsonError(`Sheets API error (${resp.status}): ${await resp.text()}`, resp.status);
+    let headerRow: string[];
+    let dataRows: string[][];
 
-    const { values = [] } = await resp.json() as { values?: string[][] };
-    if (values.length === 0) return jsonOk({ headers: [], rows: [] });
+    if (dataStartRow && dataStartRow > 2) {
+      // Fetch headers (row 1) and data (dataStartRow+) separately via batchGet
+      const r1 = encodeURIComponent(`${tabName}!A1:ZZ1`);
+      const r2 = encodeURIComponent(`${tabName}!A${dataStartRow}:ZZ`);
+      const resp = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchGet?ranges=${r1}&ranges=${r2}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!resp.ok) return jsonError(`Sheets API error (${resp.status}): ${await resp.text()}`, resp.status);
+      const { valueRanges = [] } = await resp.json() as { valueRanges?: { values?: string[][] }[] };
+      headerRow = valueRanges[0]?.values?.[0] ?? [];
+      dataRows  = valueRanges[1]?.values ?? [];
+    } else {
+      const range = encodeURIComponent(`${tabName}!A:ZZ`);
+      const resp = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!resp.ok) return jsonError(`Sheets API error (${resp.status}): ${await resp.text()}`, resp.status);
+      const { values = [] } = await resp.json() as { values?: string[][] };
+      if (values.length === 0) return jsonOk({ headers: [], rows: [] });
+      headerRow = values[0];
+      dataRows  = values.slice(1);
+    }
 
-    const headers = dedupeHeaders(values[0]);
+    if (headerRow.length === 0) return jsonOk({ headers: [], rows: [] });
+
+    const headers = dedupeHeaders(headerRow);
     const n = headers.length;
-    const rows = values.slice(1).map(r =>
+    const rows = dataRows.map(r =>
       r.length >= n ? r.slice(0, n) : [...r, ...Array(n - r.length).fill('')],
     );
 
@@ -166,7 +195,7 @@ async function handleWriteAction(request: Request, env: Env): Promise<Response> 
     const colIdx = await findColumnIndex(token, sheetId, tabName, 'action_taken');
     if (colIdx === null) return jsonError("Column 'action_taken' not found in sheet", 404);
 
-    const range = encodeURIComponent(`${tabName}!${toColLetter(colIdx)}${rowIndex + 2}`);
+    const range = encodeURIComponent(`${tabName}!${toColLetter(colIdx)}${rowIndex + dataRowOffset(env)}`);
     const resp = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?valueInputOption=RAW`,
       {
@@ -198,7 +227,7 @@ async function handleWriteResponse(request: Request, env: Env): Promise<Response
     const colIdx = await findColumnIndex(token, sheetId, tabName, 'response');
     if (colIdx === null) return jsonError("Column 'response' not found in sheet", 404);
 
-    const range = encodeURIComponent(`${tabName}!${toColLetter(colIdx)}${rowIndex + 2}`);
+    const range = encodeURIComponent(`${tabName}!${toColLetter(colIdx)}${rowIndex + dataRowOffset(env)}`);
     const resp = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?valueInputOption=RAW`,
       {
@@ -233,8 +262,9 @@ async function handleAssign(request: Request, env: Env): Promise<Response> {
     if (colIdx === null) return jsonError("Column 'Assigned To' not found in sheet", 404);
 
     const colLetter = toColLetter(colIdx);
+    const offset = dataRowOffset(env);
     const data = rowIndices.map(ridx => ({
-      range: `${tabName}!${colLetter}${ridx + 2}`,
+      range: `${tabName}!${colLetter}${ridx + offset}`,
       values: [[username]],
     }));
 

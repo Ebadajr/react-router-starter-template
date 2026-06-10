@@ -31,6 +31,7 @@ export interface EddRow {
   extra: Record<string, string>;
   daysSinceSubmission: number | null;
   isStale: boolean;
+  eddResponse: EddResponseValue;   // Response column: drives the status badge
   // Sheet-sourced account info (EG market)
   arabicName: string;
   isMinor: string;
@@ -49,8 +50,10 @@ export interface EddRow {
 
 // ── Status ────────────────────────────────────────────────────────────────────
 
-export type CaseStatus = 'Pending' | 'Form Sent' | 'Under Review' | 'Done';
-export const STATUS_OPTIONS: CaseStatus[] = ['Pending', 'Form Sent', 'Under Review', 'Done'];
+export type EddResponseValue = 'edd_requested' | 'edd_accepted' | 'edd_rejected' | 'dup' | '';
+
+export type CaseStatus = 'Pending' | 'Requested' | 'Accepted' | 'Rejected' | 'Form Sent' | 'Under Review' | 'Done';
+export const STATUS_OPTIONS: CaseStatus[] = ['Pending', 'Requested', 'Accepted', 'Rejected'];
 
 export interface ActionResult {
   ok: boolean;

@@ -1,5 +1,4 @@
-import type { EddRow, SheetData, CaseStatus } from './types';
-import { STATUS_OPTIONS } from './types';
+import type { EddRow, SheetData, CaseStatus, EddResponseValue } from './types';
 
 const STALE_DAYS = 3;
 
@@ -40,6 +39,9 @@ export function parseSheetData(data: SheetData): EddRow[] {
   const iNotes    = findCol(headers, 'added to notes', 'notes', 'note');
   const iAction   = exactCol(headers, 'action_taken');
   const iAssigned = exactCol(headers, 'assigned to');
+  const iResponse = exactCol(headers, 'Response') !== -1
+                      ? exactCol(headers, 'Response')
+                      : exactCol(headers, 'response');
 
   // Sheet-sourced account info columns (EG market)
   const iArabicName         = exactCol(headers, 'Arabic Name');
@@ -62,7 +64,7 @@ export function parseSheetData(data: SheetData): EddRow[] {
 
   const knownIndices = new Set([
     iDate, iUid, iFunding, iEmployer, iJobTitle,
-    iIncome, iCountry, iNotes, iAction, iAssigned,
+    iIncome, iCountry, iNotes, iAction, iAssigned, iResponse,
     iArabicName, iIsMinor, iOccupationAr, iAddressAr,
     iPortfolioValue, iPurchasePower, iBlockedCash, iBookBalance, iSavingsWallet,
     iCurrDepCount, iCurrDepValue, iPrevDepCount, iPrevDepValue,
@@ -92,11 +94,18 @@ export function parseSheetData(data: SheetData): EddRow[] {
       }
     });
 
+    const rawResp = get(iResponse).toLowerCase();
+    const eddResponse: EddResponseValue =
+      rawResp === 'edd_requested' || rawResp === 'edd_accepted' ||
+      rawResp === 'edd_rejected'  || rawResp === 'dup'
+        ? rawResp as EddResponseValue : '';
+
     return {
       idx,
       uid,
       submittedAt,
       submittedDate,
+      eddResponse,
       funding:       get(iFunding),
       employer:      get(iEmployer),
       jobTitle:      get(iJobTitle),
@@ -126,11 +135,36 @@ export function parseSheetData(data: SheetData): EddRow[] {
   });
 }
 
+// Groups rows by uid. Representative = latest non-DUP row per user.
+// If the latest row is DUP, walk backwards to find the latest non-DUP.
+export function deduplicateRows(rows: EddRow[]): { deduped: EddRow[]; byUid: Map<string, EddRow[]> } {
+  const byUid = new Map<string, EddRow[]>();
+  for (const row of rows) {
+    const list = byUid.get(row.uid) ?? [];
+    list.push(row);
+    byUid.set(row.uid, list);
+  }
+
+  const deduped: EddRow[] = [];
+  for (const userRows of byUid.values()) {
+    let rep = userRows[userRows.length - 1];
+    if (rep.eddResponse === 'dup') {
+      const nonDup = [...userRows].reverse().find(r => r.eddResponse !== 'dup');
+      if (nonDup) rep = nonDup;
+    }
+    deduped.push(rep);
+  }
+
+  return { deduped, byUid };
+}
+
 export function resolveStatus(
   row: EddRow,
   overrides: Record<number, CaseStatus>,
 ): CaseStatus {
   if (overrides[row.idx] !== undefined) return overrides[row.idx];
-  const label = row.rawAction.split(' — ')[0].trim() as CaseStatus;
-  return STATUS_OPTIONS.includes(label) ? label : 'Pending';
+  if (row.eddResponse === 'edd_requested') return 'Requested';
+  if (row.eddResponse === 'edd_accepted')  return 'Accepted';
+  if (row.eddResponse === 'edd_rejected')  return 'Rejected';
+  return 'Pending';
 }

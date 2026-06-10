@@ -7,18 +7,18 @@ interface MetricsBarProps {
 }
 
 export function MetricsBar({ rows, statusOverrides }: MetricsBarProps) {
-  const counts = { Pending: 0, 'Form Sent': 0, 'Under Review': 0, Done: 0 };
+  const counts = { Pending: 0, Requested: 0, Accepted: 0, Rejected: 0 };
   rows.forEach(r => {
     const s = resolveStatus(r, statusOverrides);
-    if (s in counts) counts[s]++;
+    if (s in counts) counts[s as keyof typeof counts]++;
   });
 
   const metrics = [
-    { label: 'Total',      value: rows.length },
-    { label: 'Pending',    value: counts['Pending'] },
-    { label: 'Form sent',  value: counts['Form Sent'] },
-    { label: 'In review',  value: counts['Under Review'] },
-    { label: 'Done',       value: counts['Done'] },
+    { label: 'Total',     value: rows.length },
+    { label: 'Pending',   value: counts['Pending'] },
+    { label: 'Requested', value: counts['Requested'] },
+    { label: 'Accepted',  value: counts['Accepted'] },
+    { label: 'Rejected',  value: counts['Rejected'] },
   ];
 
   return (

@@ -24,6 +24,7 @@ function makeRow(overrides: Partial<EddRow> = {}): EddRow {
     extra: {},
     daysSinceSubmission: 1,
     isStale: false,
+    eddResponse: '',
     arabicName: '', isMinor: '', occupationAr: '', addressAr: '',
     portfolioValue: '', purchasePower: '', blockedCash: '', bookBalance: '',
     savingsWallet: '', currentMonthDepositsCount: '', currentMonthDepositsValue: '',
@@ -61,6 +62,7 @@ function renderDetail(row: EddRow | null, permOverrides: Partial<UserPermissions
   const { rerender } = render(
     <CaseDetail
       row={row}
+      allSubmissions={row ? [row] : []}
       statusOverrides={{}}
       hiddenRows={new Set()}
       permissions={perms}
@@ -239,6 +241,7 @@ describe('CaseDetail status display', () => {
     render(
       <CaseDetail
         row={row}
+        allSubmissions={[row]}
         statusOverrides={{ 0: 'Under Review' }}
         hiddenRows={new Set()}
         permissions={perms}
@@ -263,6 +266,7 @@ describe('CaseDetail status display', () => {
     const { rerender } = render(
       <CaseDetail
         row={makeRow({ idx: 0 })}
+        allSubmissions={[makeRow({ idx: 0 })]}
         statusOverrides={{}}
         hiddenRows={new Set([0])}
         permissions={DEFAULT_PERMISSIONS}

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { loadSession, saveMarket, loadMarket, loadUserPermissions } from '../auth';
 import { loadSheet, writeAction, writeResponse, assignRows, loadAlerts, writeAlertAction, assignAlertRows } from '../api';
-import { parseSheetData, resolveStatus } from '../sheetParser';
+import { parseSheetData, deduplicateRows, resolveStatus } from '../sheetParser';
 import { parseAlertData } from '../alertParser';
 import type { EddRow, CaseStatus, Market, TabId, UserPermissions, AlertRow, AlertType } from '../types';
 import { ALL_TABS } from '../types';
@@ -30,6 +30,7 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab]               = useState<TabId>(defaultTab);
   const [market, setMarket]                     = useState<Market>(loadMarket);
   const [rows, setRows]                         = useState<EddRow[]>([]);
+  const [allRowsByUid, setAllRowsByUid]         = useState<Map<string, EddRow[]>>(new Map());
   const [loading, setLoading]                   = useState(false);
   const [loadError, setLoadError]               = useState<string | null>(null);
   const [connected, setConnected]               = useState(false);
@@ -47,7 +48,9 @@ export default function DashboardPage() {
     setSelectedIdx(null);
     try {
       const data = await loadSheet(m);
-      setRows(parseSheetData(data));
+      const { deduped, byUid } = deduplicateRows(parseSheetData(data));
+      setRows(deduped);
+      setAllRowsByUid(byUid);
       setConnected(true);
       setStatusOverrides({});
       setHiddenRows(new Set());
@@ -82,18 +85,21 @@ export default function DashboardPage() {
   }
 
   function handleSendForm(idx: number) {
-    handleStatusChange(idx, 'Form Sent');
+    setRows(prev => prev.map(r => r.idx === idx ? { ...r, eddResponse: 'edd_requested' } : r));
     writeResponse(idx, 'edd_requested', market).catch(console.error);
+    writeAction(idx, 'Form Sent', market).catch(console.error);
   }
 
   function handleAcceptEdd(idx: number) {
-    handleStatusChange(idx, 'Done');
+    setRows(prev => prev.map(r => r.idx === idx ? { ...r, eddResponse: 'edd_accepted' } : r));
     writeResponse(idx, 'edd_accepted', market).catch(console.error);
+    writeAction(idx, 'Done', market).catch(console.error);
   }
 
   function handleRejectEdd(idx: number) {
-    handleStatusChange(idx, 'Done');
+    setRows(prev => prev.map(r => r.idx === idx ? { ...r, eddResponse: 'edd_rejected' } : r));
     writeResponse(idx, 'edd_rejected', market).catch(console.error);
+    writeAction(idx, 'Done', market).catch(console.error);
   }
 
   function handleSendDetailsToCx(idx: number, currentStatus: CaseStatus) {
@@ -205,6 +211,7 @@ export default function DashboardPage() {
             <div className="flex-1 flex overflow-hidden">
               <CaseDetail
                 row={selectedRow}
+                allSubmissions={selectedRow ? (allRowsByUid.get(selectedRow.uid) ?? []) : []}
                 statusOverrides={statusOverrides}
                 hiddenRows={hiddenRows}
                 permissions={permissions}

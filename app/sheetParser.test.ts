@@ -169,12 +169,13 @@ describe('parseSheetData', () => {
 // ── resolveStatus ─────────────────────────────────────────────────────────────
 
 describe('resolveStatus', () => {
-  function row(rawAction: string): EddRow {
+  function row(eddResponse: EddRow['eddResponse'] = '', rawAction = ''): EddRow {
     return {
       idx: 0, uid: 'U', submittedAt: '', submittedDate: null,
       funding: '', employer: '', jobTitle: '', monthlyIncome: '',
       country: '', notes: '', documents: [], rawAction,
       assignedTo: '', extra: {}, daysSinceSubmission: null, isStale: false,
+      eddResponse,
       arabicName: '', isMinor: '', occupationAr: '', addressAr: '',
       portfolioValue: '', purchasePower: '', blockedCash: '', bookBalance: '',
       savingsWallet: '', currentMonthDepositsCount: '', currentMonthDepositsValue: '',
@@ -182,35 +183,30 @@ describe('resolveStatus', () => {
     };
   }
 
-  it('returns Pending for empty rawAction', () => {
+  it('returns Pending when eddResponse is empty', () => {
     expect(resolveStatus(row(''), {})).toBe('Pending');
   });
 
-  it('returns the valid status from rawAction', () => {
-    expect(resolveStatus(row('Form Sent'), {})).toBe('Form Sent');
-    expect(resolveStatus(row('Under Review'), {})).toBe('Under Review');
-    expect(resolveStatus(row('Done'), {})).toBe('Done');
+  it('returns Requested when eddResponse is edd_requested', () => {
+    expect(resolveStatus(row('edd_requested'), {})).toBe('Requested');
   });
 
-  it('extracts status from "Status — detail" format', () => {
-    expect(resolveStatus(row('Under Review — Send details to cx'), {})).toBe('Under Review');
-    expect(resolveStatus(row('Done — edd_accepted'), {})).toBe('Done');
+  it('returns Accepted when eddResponse is edd_accepted', () => {
+    expect(resolveStatus(row('edd_accepted'), {})).toBe('Accepted');
   });
 
-  it('falls back to Pending for unrecognised rawAction', () => {
-    expect(resolveStatus(row('edd_requested'), {})).toBe('Pending');
-    expect(resolveStatus(row('Send details to cx'), {})).toBe('Pending');
-    expect(resolveStatus(row('some garbage'), {})).toBe('Pending');
+  it('returns Rejected when eddResponse is edd_rejected', () => {
+    expect(resolveStatus(row('edd_rejected'), {})).toBe('Rejected');
   });
 
-  it('prefers override over rawAction', () => {
-    const r = row('Pending');
+  it('prefers override over eddResponse', () => {
+    const r = row('edd_requested');
     expect(resolveStatus(r, { 0: 'Done' })).toBe('Done');
   });
 
   it('override does not affect other rows', () => {
-    const r0 = { ...row('Pending'), idx: 0 };
-    const r1 = { ...row('Pending'), idx: 1 };
+    const r0 = { ...row('edd_requested'), idx: 0 };
+    const r1 = { ...row(''), idx: 1 };
     const overrides = { 0: 'Done' as const };
     expect(resolveStatus(r0, overrides)).toBe('Done');
     expect(resolveStatus(r1, overrides)).toBe('Pending');
